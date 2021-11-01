@@ -1,30 +1,30 @@
 import pygame
 from gui import *
 from space import *
-import os
 
-W,H = 800,600
+W,H = 800, 600
 BACKGROUND_COLOR = (0,0,0)
 
+
 def main():
-    GUIElement.init_font()
+    UIElement.init_font()
     font = pygame.font.SysFont('Verdana Bold Italic', 30)
 
     win = pygame.display.set_mode((W,H))
-    pygame.display.set_icon(pygame.image.load(os.path.join('res', 'logo.png')))
     surf = pygame.Surface((W,H))
     fps = 60
     running = True
     clock = pygame.time.Clock()
 
     pygame.display.set_caption("Gravity")
+    pygame.display.set_icon(pygame.image.load(os.path.join('res', 'logo.png')))
 
     first, second = Body((W//2-148,H//2+10), 1), Body((W//2,H//2-10), 3.32954355178996e5)
     first.vel = np.array([0,29.78*1e-6*86400], dtype=np.float64)
     space = Space([first,second], tick_time=1)
 
-    gui = GUI()
-    gui.add_widget(PlanetGUI(W,H))
+    gui = UI()
+    gui.add_widget(PlanetUI(W,H))
 
     days = 0
 
@@ -44,7 +44,7 @@ def main():
                     gui.widgets[0].log_body(loaded_body, mouse_pos)
 
             gui.handle_event(event, mouse_vel=mouse_vel)
-    
+
         surf.fill(BACKGROUND_COLOR)
         space.update()
         space.render(surf)
@@ -52,7 +52,7 @@ def main():
         days += 1
         time_text = font.render(f"Giorni passati: {days}", False, (0,255,255))
 
-        space.render_grav_field(surf, margin=75)
+        space.render_grav_field(surf, margin=75, W=W, H=H)
         
         gui.render(surf)
         surf.blit(time_text, (10,10))

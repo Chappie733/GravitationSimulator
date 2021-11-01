@@ -1,7 +1,6 @@
 import numpy as np
 import pygame
 from body import *
-from main import W,H
 
 arrow_vertices = (np.array(((0, 100), (0, 200), (200, 200), (200, 300), (300, 150), (200, 0), (200, 100)))-150)*np.array([1.35,0.65])/5
 
@@ -46,8 +45,7 @@ class Space:
                 return body
         return None
 
-    def render_grav_field(self, surf: pygame.Surface, margin=100) -> None:
-        global W,H
+    def render_grav_field(self, surf: pygame.Surface, margin=100, W=800, H=600) -> None:
         for i in range(0,W,margin):
             for j in range(0,H,margin):
                 pos = np.array([i,j])
