@@ -5,14 +5,13 @@ from space import *
 W,H = 800, 600
 BACKGROUND_COLOR = (0,0,0)
 
-
 def main():
     UIElement.init_font()
-    font = pygame.font.SysFont('Verdana Bold Italic', 30)
+    font = pygame.font.SysFont(None, 30)
 
     win = pygame.display.set_mode((W,H))
     surf = pygame.Surface((W,H))
-    fps = 60
+    fps = 30
     running = True
     clock = pygame.time.Clock()
 
@@ -25,8 +24,7 @@ def main():
 
     gui = UI()
     gui.add_widget(PlanetUI(W,H))
-
-    days = 0
+    gui.add_widget(TimeUI(W,H))
 
     while running:
         clock.tick(fps)
@@ -47,15 +45,12 @@ def main():
 
         surf.fill(BACKGROUND_COLOR)
         space.update()
+        gui.update()
+
         space.render(surf)
-
-        days += 1
-        time_text = font.render(f"Giorni passati: {days}", False, (0,255,255))
-
         space.render_grav_field(surf, margin=75, W=W, H=H)
         
         gui.render(surf)
-        surf.blit(time_text, (10,10))
         win.blit(surf, (0,0))
         pygame.display.flip()
 
