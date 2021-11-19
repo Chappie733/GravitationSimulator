@@ -6,8 +6,7 @@ W,H = 800, 600
 BACKGROUND_COLOR = (0,0,0)
 
 def main():
-    UIElement.init_font()
-    font = pygame.font.SysFont(None, 30)
+    UIElement.init_font(W=W)
 
     win = pygame.display.set_mode((W,H))
     surf = pygame.Surface((W,H))
@@ -16,7 +15,7 @@ def main():
     clock = pygame.time.Clock()
 
     pygame.display.set_caption("Gravity")
-    pygame.display.set_icon(pygame.image.load(os.path.join('res', 'logo.png')))
+    pygame.display.set_icon(load_texture("logo.png"))
 
     first, second = Body((W//2-148,H//2+10), 1), Body((W//2,H//2-10), 3.32954355178996e5)
     first.vel = np.array([0,29.78*1e-6*86400], dtype=np.float64)
@@ -26,9 +25,11 @@ def main():
     gui.add_widget(PlanetUI(W,H))
     gui.add_widget(TimeUI(W,H))
 
+
     while running:
         clock.tick(fps)
         mouse_vel = pygame.mouse.get_rel() # mouse velocity
+        mouse_pos = pygame.mouse.get_pos()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -37,15 +38,19 @@ def main():
                 if event.button == 3:
                     space.on_click()
                 elif event.button == 1:
-                    mouse_pos = pygame.mouse.get_pos()
-                    loaded_body = space.get_body(mouse_pos)
-                    gui.widgets[0].log_body(loaded_body, mouse_pos)
+                    if not gui.get_by_type(TimeUI).is_on_element(mouse_pos): # if the click wasn't on the time ui
+                        loaded_body = space.get_body(mouse_pos) # get the body in the position clicked
+                        gui.get_by_type(PlanetUI).log_body(loaded_body, mouse_pos) # update the planet ui with the selected body
 
-            gui.handle_event(event, mouse_vel=mouse_vel)
+            elif event.type == TIME_UPDATE_EVENT:
+                space.tick_time = gui.get_by_type(TimeUI).get_time_rate()
+
+            gui.handle_event(event, mouse_pos=mouse_pos, mouse_vel=mouse_vel)
 
         surf.fill(BACKGROUND_COLOR)
-        space.update()
-        gui.update()
+        if gui.get_by_type(TimeUI).is_time_enabled():
+            space.update()
+            gui.update()
 
         space.render(surf)
         space.render_grav_field(surf, margin=75, W=W, H=H)

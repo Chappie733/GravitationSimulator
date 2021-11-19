@@ -1,7 +1,10 @@
 import pygame
-import os
 from body import Body
 import time
+from utils import load_texture, clamp, load_spritesheet
+
+TIME_UPDATE_EVENT = pygame.USEREVENT+1
+
 
 class UI:
 
@@ -47,6 +50,16 @@ class UI:
     def add_widget(self, widget) -> None:
         self.widgets.append(widget)
 
+    def get_by_type(self, _type: type):
+        '''
+            Returns the first occurrence of the widget of the given type (_type),
+            if no widget of type _type is found then None is returned instead.
+        '''
+        for widget in self.widgets:
+            if type(widget) == _type:
+                return widget
+        return None
+
 
 class UIElement:
     font = None
@@ -66,10 +79,10 @@ class UIElement:
         self.texture = texture
         if texture is not None:
             if isinstance(texture, str):
-                self.texture = pygame.image.load(os.path.join('res', texture))
+                self.texture = load_texture(texture)
             self.texture = pygame.transform.scale(self.texture, size)       
 
-    def on_click(self, mouse_pos) -> None:
+    def on_click(self, mouse_pos):
         self.enabled = self.is_on_element(mouse_pos)
 
     def is_on_element(self, mouse_pos) -> bool:
@@ -81,7 +94,7 @@ class UIElement:
         return on_element
 
     def on_mouse_motion(self, *args) -> None: pass
-    def on_click_release(self, *args) -> None: pass
+    def on_click_release(self, *args): pass
     def handle_event(self, *args) -> None: pass
     def update(self, *args) -> None: pass
 
@@ -104,17 +117,44 @@ class ProgressBar(UIElement):
     BACKGROUND_COLOR = (255,128,0)
     PROGRESS_COLOR = (255,255,0)
 
-    def __init__(self, pos, size, min_val=0, val=50, max_val=100, parent=None) -> None:
-        super().__init__(pos, size, parent=parent)
+    def __init__(self, pos, size, min_val=0, val=50, max_val=100, texture=None, parent=None, 
+                interactable=True, discrete=False, fill_y_offset=0, fill_y_size=0, fill_color=None) -> None:
+        '''
+            pos -> (x,y) pixel position of the element\n
+            size -> (width, height) pixel size of the element\n
+            min_val -> the minimum value the progress bar can assume\n
+            val -> the initial value of the progress bar\n
+            max_val -> the maximum value of the progress bar\n
+            texture -> background texture\n
+            parent -> the parent widget of the element\n
+            interactable -> whether the progress bar's value can be changed by clicking on it\n
+            discrete -> whether the progress bar can only assume discrete values\n
+            fill_y_offset -> the offset between the rendering position of the texture and that of the progress bar\n
+            fill_y_size -> the size of the section filled to represent the progress
+        '''
+        super().__init__(pos, size, texture=texture, parent=parent)
         self.min_val = min_val
         self.max_val = max_val
         self.val = val
+        self.interactable = interactable
+        self.discrete = discrete
+        self.fill_y_size = fill_y_size if fill_y_size != 0 else self.size[1]
+        self.fill_y_offset = fill_y_offset
+        self.fill_color = fill_color if fill_color is not None else self.PROGRESS_COLOR
 
-    def on_click(self, mouse_pos) -> None:
+    def on_click(self, mouse_pos) -> bool:
+        '''
+            Returns true if the value of the progress bar has been changed
+        '''
         super().on_click(mouse_pos)
-        if self.enabled:
+        if self.enabled and self.interactable:
             rel_mouse_x = mouse_pos[0] if self.parent is None else mouse_pos[0]-self.parent.pos[0]
             self.val = self.min_val+(self.max_val-self.min_val)*(rel_mouse_x-self.pos[0])/self.size[0]
+            if self.discrete:
+                self.val = clamp(round(self.val), self.min_val+1, self.max_val)
+            return True
+        return False
+
 
     def on_mouse_motion(self, mouse_pos, *args) -> None:
         if pygame.mouse.get_pressed()[0]:
@@ -123,26 +163,49 @@ class ProgressBar(UIElement):
     def render(self, surf: pygame.Surface) -> None:
         prog_w = int((self.val-self.min_val)/(self.max_val-self.min_val)*self.size[0]) # width of the progress color (in pixels)
         src = (0,0) if self.parent is None else self.parent.pos
-        pygame.draw.rect(surf, self.BACKGROUND_COLOR, (src[0]+self.pos[0], src[1]+self.pos[1], self.size[0], self.size[1]))
-        pygame.draw.rect(surf, self.PROGRESS_COLOR, (src[0]+self.pos[0], src[1]+self.pos[1], prog_w, self.size[1]))
+        if self.texture is None:
+            pygame.draw.rect(surf, self.BACKGROUND_COLOR, (src[0]+self.pos[0], src[1]+self.pos[1], self.size[0], self.size[1]))
+        pygame.draw.rect(surf, self.fill_color, (src[0]+self.pos[0], src[1]+self.pos[1]+self.fill_y_offset, prog_w, self.fill_y_size))
+        # draws the background image if it's present
+        if self.texture is not None:
+            src = (0,0) if self.parent is None else self.parent.pos
+            surf.blit(self.texture, (src[0]+self.pos[0], src[1]+self.pos[1]))
 
 
 class TextBox(UIElement):
 
-    def __init__(self, pos, size, max_len=9, texture=None, parent=None) -> None:
+    def __init__(self, pos, size, max_len=9, texture=None, parent=None, enable_on_click=False, letter_width=0.5) -> None:
+        '''
+        pos -> (x,y), the position of the widget\n
+        size -> (w,h) the size of the textbox\n
+        max_len -> maximum length of the text typed\n
+        texture -> the background texture of the bar\n
+        parent -> the parent widget of the bar\n
+        enable_on_click -> whether the textbox is only enabled (and rendered) after it's been clicked on.\\
+        letter_width -> a number determining the size of each letter (it has to be between 0 and 1)
+        '''
         super().__init__(pos, size, texture=texture, parent=parent)
         self.content = ""
         self.text = self.font.render("", False, (255,255,255))
         self.max_len = max_len
-        self.char_size = (int(self.size[0]/self.max_len*3/4), int(self.size[1]*3/5))
+        self.char_size = (int(self.size[0]/self.max_len*letter_width), int(self.size[1]*3/5))
+        self.letter_width = letter_width
+        self.active = False # whether the user is writing on the textbox
+        self.enable_on_click = enable_on_click
+        self.enabled = True
 
     def set_text(self, text) -> None:
         self.content = text
         text_size = (int(self.char_size[0]*len(self.content)), int(self.char_size[1]))
         self.text = pygame.transform.scale(self.font.render(self.content, False, (255,255,255)), text_size) # the text has to be re-rendered
 
+    def on_click(self, mouse_pos):
+        self.active = super().is_on_element(mouse_pos)
+        if self.enable_on_click:
+            self.enabled = self.active
+
     def handle_event(self, event) -> None:
-        if not self.enabled:
+        if not self.active or not self.enabled:
             return
         if event.type == pygame.KEYDOWN:
             if event.key == 8 and len(self.content) > 0: # delete key has been pressed
@@ -151,55 +214,76 @@ class TextBox(UIElement):
                 keys = pygame.key.get_pressed()
                 addition = chr(event.key)
                 if keys[pygame.K_RSHIFT] or keys[pygame.K_LSHIFT]:
-                    addition = chr(event.key-32)
-                self.set_text(self.content+addition)
+                    addition = chr(event.key-32) # make the letter a capital
+                self.set_text(self.content+addition) # add the newly typed letter into the text contained by the textbox
 
     def render(self, surf: pygame.Surface) -> None:
-        pos = self.pos if self.parent is None else (self.parent.pos[0]+self.pos[0], self.parent.pos[1]+self.pos[1])
-        surf.blit(self.texture, (pos[0], pos[1]))
-        surf.blit(self.text, (pos[0]+int(self.size[0]/18), pos[1] + int(self.size[1]*1/4)))
-        if time.time() % 1 > 0.5 and self.enabled:
-            cursor_x_offset = int(self.size[0]*(len(self.content)+1)/self.max_len*3/4)
-            pygame.draw.rect(surf, (255,255,255), (pos[0]+cursor_x_offset, pos[1] + int(self.size[1]*1/4), self.char_size[0], self.char_size[1]))
+        if self.enabled:
+            pos = self.pos if self.parent is None else (self.parent.pos[0]+self.pos[0], self.parent.pos[1]+self.pos[1])
+            surf.blit(self.texture, (pos[0], pos[1]))
+            surf.blit(self.text, (pos[0]+int(self.size[0]/18), pos[1] + int(self.size[1]*1/4)))
+            if time.time() % 1 > 0.5 and self.active:
+                cursor_x_offset = int(self.size[0]*(len(self.content)+1)/self.max_len*self.letter_width)
+                pygame.draw.rect(surf, (255,255,255), (pos[0]+cursor_x_offset, pos[1] + int(self.size[1]*1/4), self.char_size[0], self.char_size[1]))
 
 class Button(UIElement):
 
     # textures is a list of textures that are drawn corresponding to the state
     # of the button, 0 -> normal, 1 -> hovered, 2 -> clicked
     def __init__(self, pos, size, textures=None, parent=None) -> None:
+        '''
+            pos -> position of the top-left corner of the gui element
+            size -> width and height of the gui element (w,h)
+            textures -> a list of three textures, the first is how the button looks by default,
+            the second is the button when the user hovers over it with the mouse,
+            and the third is the look of the button when it's actively being clicked
+        '''
         super().__init__(pos, size, parent=parent)
         self.state = 0 # default state
         self.enabled = True
         self.textures = []
         # make sure the game doesn't crash if a button is created without any custom
-        textures = textures if textures is not None else ["button_default.png",
-                                                          "button_hovered.png",
-                                                          "button_clicked.png"]
-        for texture in textures:
-            if isinstance(texture, str):
-                texture = pygame.image.load(os.path.join('res', texture))
-            self.textures.append(pygame.transform.scale(texture, size))
+        if textures is not None:
+            for texture in textures:
+                if isinstance(texture, str):
+                    texture = load_texture(texture)
+                self.textures.append(pygame.transform.scale(texture, size))
+        else:
+            self.textures = load_spritesheet("default_button.png", tile_w=64, tile_h=32, new_size=size)
 
-    def on_click(self, mouse_pos) -> None:
+
+    def on_click(self, mouse_pos) -> bool:
+        '''
+            Returns whether the button has been clicked
+        '''
         if self.is_on_element(mouse_pos):
-            self.state = 2
+            self.state = 2 # switch to the clicked texture
 
-    def on_click_release(self, *args) -> None:
-        if self.state == 2:
-            self.state = 1
-    
+    def on_click_release(self, mouse_pos, *args) -> bool:
+        '''
+            Returns whether the button was pressed before the click was released
+        '''
+        # if the button was clicked and the mouse is still on it
+        if self.state == 2 and super().is_on_element(mouse_pos):
+            self.state = 1 # return to the hovered texture
+            return True
+        return False
+
     def on_mouse_motion(self, mouse_pos) -> None:
         if super().is_on_element(mouse_pos) and self.state != 2:
             self.state = 1
-        elif self.state != 0:
+        elif self.state != 0: # if the mouse isn't on the button
             self.state = 0
-            
+    
+    def is_clicked(self) -> bool:
+        return self.state == 2
+    
     def render(self, surf: pygame.Surface) -> None:
         if self.enabled:
             src = (0,0) if self.parent is None else self.parent.pos
             surf.blit(self.textures[self.state], (self.pos[0]+src[0], self.pos[1]+src[1]))
 
-class CheckBox(UIElement):
+class Tickbox(UIElement):
 
     def __init__(self, pos, size, textures=None, parent=None) -> None:
         super().__init__(pos, size, parent=parent)
@@ -207,48 +291,112 @@ class CheckBox(UIElement):
         self.texture_state = 0 # texture state (0 -> unticked, 1 -> clicked (but click not yet released), 2 -> ticked)
         self.textures = []
         # make sure the game doesn't just crash if no custom texture is loaded
-        textures = textures if textures is not None else ["checkbox_unticked.png",
-                                                          "checkbox_click.png",
-                                                          "checkbox_ticked.png"]
-        for texture in textures:
-            if isinstance(texture, str):
-                texture = pygame.image.load(os.path.join('res', texture))
-            self.textures.append(pygame.transform.scale(texture, size))
+        if textures is not None:
+            for texture in textures:
+                if isinstance(texture, str):
+                    texture = load_texture(texture)
+                self.textures.append(pygame.transform.scale(texture, size))
+        else:
+            self.textures = load_spritesheet("tickbox.png", new_size=size)
+
+    def _set_hovered(self):
+        if len(self.textures) == 3:
+            self.texture_state = 1 
+        elif len(self.textures) == 4:
+            self.texture_state = 1 if self.texture_state == 0 else 2
 
     def on_click(self, mouse_pos) -> None:
         if super().is_on_element(mouse_pos):
-            self.texture_state = 1
+            self._set_hovered()
 
     def on_click_release(self, mouse_pos, *args) -> None:
         if super().is_on_element(mouse_pos):
             self.ticked = not self.ticked
-            self.texture_state = 2*int(self.ticked)
+            self.texture_state = int(self.ticked)*(len(self.textures)-1)
         
     def render(self, surf: pygame.Surface) -> None:
         src = (0,0) if self.parent is None else self.parent.pos
         surf.blit(self.textures[self.texture_state], (self.pos[0]+src[0], self.pos[1]+src[1]))
 
+    def set_ticked(self, ticked: bool) -> None:
+        self.ticked = ticked
+        self.texture_state = 0
+
 class TimeUI(UIElement):
+    MAX_TIME_RATE = 2
+    MIN_TIME_RATE = 0.25
+    TIME_STEP = 0.25
 
     def __init__(self, w, h) -> None:
-        super().__init__((0,0), (int(196*w/800),int(49*h/600)), "time_gui_background.png")
+        super().__init__((0,0), (int(196*w/800),int(100*h/600)), "time_gui_background.png")
         self.days = 0
         self.x_ratio, self.y_ratio = w/800.0, h/600.0 
         self.enabled = True
+        self.pause_box = Tickbox((int(82*self.x_ratio), int(60*self.y_ratio)),
+                                    (int(24*self.x_ratio),int(24*self.y_ratio)),
+                                    textures=load_spritesheet("time_toggle.png"),
+                                    parent=self)
+        self.speed_up_button = Button((int(131*self.x_ratio), int(60*self.y_ratio)),
+                                      (int(24*self.x_ratio), int(24*self.y_ratio)),
+                                      textures=load_spritesheet("speedup_button.png", tile_w=32, tile_h=32),
+                                      parent=self)
+        self.slow_down_button = Button((int(33*self.x_ratio), int(60*self.y_ratio)),
+                                      (int(24*self.x_ratio), int(24*self.y_ratio)),
+                                      textures=load_spritesheet("slowdown_button.png", tile_w=32, tile_h=32),
+                                      parent=self)
+        self.time_rate_bar = ProgressBar((int(5*self.x_ratio),int(32*self.y_ratio)), (int(180*self.x_ratio),int(24*self.y_ratio)), 
+                                        min_val=0, val=4, max_val=8, 
+                                        texture="progressbar.png", discrete=True, fill_y_offset=int(2*self.x_ratio), fill_y_size=int(21*self.y_ratio),
+                                        parent=self, fill_color=(115,115,115))
 
-    def on_click(self, mouse_pos) -> None: pass
+    def on_click(self, mouse_pos) -> None:
+        self.pause_box.on_click(mouse_pos)
+        self.speed_up_button.on_click(mouse_pos)
+        self.slow_down_button.on_click(mouse_pos)
+        if self.time_rate_bar.on_click(mouse_pos):
+            pygame.event.post(pygame.event.Event(TIME_UPDATE_EVENT))
+
+    def on_click_release(self, mouse_pos, *args) -> None:
+        self.pause_box.on_click_release(mouse_pos)
+        self.time_rate_bar.on_click_release(mouse_pos)
+        if self.speed_up_button.on_click_release(mouse_pos) and self.time_rate_bar.val*self.TIME_STEP < self.MAX_TIME_RATE:
+            self.time_rate_bar.val += 1
+            # used in the rest of the program to actually update the values
+            pygame.event.post(pygame.event.Event(TIME_UPDATE_EVENT))
+        elif self.slow_down_button.on_click_release(mouse_pos) and self.time_rate_bar.val*self.TIME_STEP > self.MIN_TIME_RATE:
+            self.time_rate_bar.val -= 1
+            # used in the rest of the program to actually update the values
+            pygame.event.post(pygame.event.Event(TIME_UPDATE_EVENT))
+
+    def on_mouse_motion(self, mouse_pos) -> None:
+        self.speed_up_button.on_mouse_motion(mouse_pos)
+        self.slow_down_button.on_mouse_motion(mouse_pos)
 
     def _update_text(self):
-        self.time_text = self.font.render(f"Giorni passati: {self.days}", False, (255,255,255))
+        '''
+            Updates the text showing the amount of time passed
+        '''
+        self.time_text = self.font.render(f"Giorni passati: {int(self.days)}", False, (255,255,255))
         self.time_text = pygame.transform.scale(self.time_text, (int(182*self.x_ratio), int(19*self.y_ratio)))
 
     def update(self, *args) -> None:
-        self.days += 1
+        self.days += self.get_time_rate()
 
     def render(self, surf: pygame.Surface) -> None:
         super().render(surf)
         self._update_text()
-        surf.blit(self.time_text, (int(5*self.x_ratio), int(10*self.y_ratio)))
+        surf.blit(self.time_text, (int(5*self.x_ratio), int(10*self.y_ratio))) 
+
+        self.pause_box.render(surf)
+        self.speed_up_button.render(surf)
+        self.slow_down_button.render(surf)
+        self.time_rate_bar.render(surf)
+
+    def is_time_enabled(self) -> bool:
+        return self.pause_box.ticked
+
+    def get_time_rate(self) -> float:
+        return self.TIME_STEP*self.time_rate_bar.val
 
 class PlanetUI(UIElement):
     MOON_MASS = 1.230312630186531e-2 # mass of the moon/mass of the earth
@@ -257,20 +405,26 @@ class PlanetUI(UIElement):
     MIN_CLICK_THROW_TIME = 0.3 # minimum amount of time (in seconds) for which an object has to be clicked in order to be thrown
     # minimum amount of time (in seconds) for which an object has to be clicked in order to change its velocity when it's dragged
     MIN_CLICK_CHANGE_VEL_TIME = 0.1 
-#    SUN_MASS = 3.32954355178996e5 # mass of the sun/mass of the earth
+    MAX_BODY_PATH_LEN = 500 # the maximum amount of positions rendered when drawing the path of a body
 
     def __init__(self, w, h) -> None:
         super().__init__((int(500*w/800),int(400*h/600)), (int(256*w/800),int(166*h/600)), "gui_background.png")
         # the values were adjusted for this resolution, this way they can be scaled to any given resolution
         self.x_ratio, self.y_ratio = w/800.0, h/600.0 
-        self.mass_bar = ProgressBar((int(30*self.x_ratio), int(43*self.y_ratio)), (int(190*self.x_ratio),int(22*self.y_ratio)), 
+        self.mass_bar = ProgressBar((int(30*self.x_ratio), int(37*self.y_ratio)), (int(190*self.x_ratio),int(22*self.y_ratio)), 
                                     min_val=self.MOON_MASS, val=1, max_val=10**6, parent=self)
-        self.radius_bar = ProgressBar((int(32*self.x_ratio),int(97*self.y_ratio)), (int(190*self.x_ratio), int(22*self.y_ratio)), 
+        self.mass_textbox = TextBox((int(100*self.x_ratio), int(13*self.y_ratio)), 
+                                    (int(125*self.x_ratio), int(20*self.y_ratio)),
+                                    max_len=14, texture="textbox.png",
+                                    parent=self, enable_on_click=True, letter_width=0.9)
+        self.radius_bar = ProgressBar((int(32*self.x_ratio),int(85*self.y_ratio)), (int(190*self.x_ratio), int(22*self.y_ratio)), 
                                     min_val=1, val=3, max_val=17, parent=self)
-        self.name_bar = TextBox((int(20*self.x_ratio),int(-30*self.y_ratio)), (int(216*self.x_ratio), int(40*self.y_ratio)), 
-                                    max_len=9, texture='planet_name_background.png', 
-                                    parent=self)
+        self.name_textbox = TextBox((int(20*self.x_ratio),int(-30*self.y_ratio)), (int(216*self.x_ratio), int(40*self.y_ratio)), 
+                                    max_len=10, texture='textbox.png', 
+                                    parent=self, letter_width=0.75)
+        self.orbit_tickbox = Tickbox((int(180*self.x_ratio), int(133*self.y_ratio)), (18,18), parent=self)
         self.body = None
+        self.body_path = []
         self.dragging = False # whether the selected body is being dragged
         self.click_start = 0
 
@@ -283,14 +437,15 @@ class PlanetUI(UIElement):
         self.vel_text = super().font.render(str(round(self.body.get_abs_vel(), 2))+"*10^6 km/day", False, (255,255,255))
         # only update the text of the mass if it has been changed
         if self.mass_bar.enabled or 'mass_text' not in dir(self) or force_update: 
-            mass_text = "%.3g" % (self.body.mass*Body.EARTH_MASS) # in exponential notation ex. 1.00e5 -> 1*10^(5)
-            self.mass_text = super().font.render(mass_text.replace("e", "*10^").replace("+","") + " kg", False, (255,255,255))
+            self.mass_text = super().font.render(self.body.get_mass_str(), False, (255,255,255))
 
     def on_click(self, mouse_pos) -> None:
         self.mass_bar.on_click(mouse_pos)
         self.radius_bar.on_click(mouse_pos)
-        self.name_bar.on_click(mouse_pos)
-        if self.name_bar.enabled:
+        self.name_textbox.on_click(mouse_pos)
+        self.orbit_tickbox.on_click(mouse_pos)
+        self.mass_textbox.on_click(mouse_pos)
+        if self.name_textbox.active:
             self.enabled = True
         if self.body is not None:
             if self.body.is_on_body(mouse_pos):
@@ -298,9 +453,10 @@ class PlanetUI(UIElement):
                 self.click_start = time.time()
 
     def handle_event(self, event) -> None:
-        self.name_bar.handle_event(event)
-        if self.name_bar.enabled and event.type == pygame.KEYDOWN: # a letter has been typed in the name field
-            self.body.name = self.name_bar.content
+        self.name_textbox.handle_event(event)
+        self.mass_textbox.handle_event(event)
+        if self.name_textbox.active and event.type == pygame.KEYDOWN: # a letter has been typed in the name field
+            self.body.name = self.name_textbox.content
 
     def on_mouse_motion(self, mouse_pos) -> None:
         if self.dragging:
@@ -312,35 +468,53 @@ class PlanetUI(UIElement):
             self.mass_bar.on_mouse_motion(mouse_pos)
             self.radius_bar.on_mouse_motion(mouse_pos)
     
-    def on_click_release(self, *args) -> None:
+    def on_click_release(self, mouse_pos, *args) -> None:
+        self.orbit_tickbox.on_click_release(mouse_pos)
         if self.dragging:
             self.dragging = False
             # looks dumb but this way I don't have to import numpy just for this one line
             if time.time() - self.click_start > self.MIN_CLICK_THROW_TIME:
-                if self.MIN_THROW_VEL < (args[1][0]**2+args[1][0]**2)**(0.5) < self.MAX_THROW_VEL: 
-                    self.body.set_vel(args[1]) # args[1] is the displacement of the mouse from the last frame
+                if self.MIN_THROW_VEL < (args[0][0]**2+args[0][1]**2)**(0.5) < self.MAX_THROW_VEL: 
+                    self.body.set_vel(args[0]) # args[1] is the displacement of the mouse from the last frame
 
     def log_body(self, body: Body, mouse_pos=None) -> None:
         mouse_pos = mouse_pos if mouse_pos is not None else pygame.mouse.get_pos()
-        super().on_click(mouse_pos)
+        is_on_gui = super().is_on_element(mouse_pos)
         # if there is no body or the click was on the GUI just do nothing
-        if body is None or self.enabled: 
+        if body is None or is_on_gui:
+            if body is None and not is_on_gui:
+                self.enabled = False
             return
+        
         self.enabled = True
         self.mass_bar.val = body.mass
         self.radius_bar.val = body.radius
         self.body = body
         self.update_texts(force_update=True) # re-render the velocity and mass text
-        self.name_bar.set_text(self.body.name)
+        self.name_textbox.set_text(self.body.name)
+        self.mass_textbox.set_text(self.body.get_mass_str())
+        self.orbit_tickbox.set_ticked(False)
+        self.body_path = []
+
+    def update(self) -> None:
+        if self.orbit_tickbox.ticked:
+            if len(self.body_path) > self.MAX_BODY_PATH_LEN:
+                self.body_path = self.body_path[1:len(self.body_path)]
+            self.body_path.append((int(self.body.pos[0]), int(self.body.pos[1])))
 
     def render(self, surf: pygame.Surface) -> None:
         super().render(surf)
         if self.enabled:
             self.update_texts()
+
+            if self.orbit_tickbox.ticked:
+                for pos in self.body_path:
+                    pygame.draw.circle(surf, (255,255,255), pos, int(self.body.radius*3/4))
+
             self.mass_bar.render(surf)
             self.radius_bar.render(surf)
-            surf.blit(self.vel_text, (self.pos[0]+int(115*self.x_ratio), self.pos[1]+int(135*self.y_ratio))) # velocity text
-            surf.blit(self.mass_text, (self.pos[0]+int(105*self.x_ratio), self.pos[1]+int(20*self.y_ratio)))
+            surf.blit(self.vel_text, (self.pos[0]+int(120*self.x_ratio), self.pos[1]+int(115*self.y_ratio))) # velocity text
+            surf.blit(self.mass_text, (self.pos[0]+int(100*self.x_ratio), self.pos[1]+int(17*self.y_ratio)))
 
             # if the mass or the radius was changed, change the body's parameters accordingly
             if self.mass_bar.enabled:
@@ -349,4 +523,6 @@ class PlanetUI(UIElement):
                 self.body.radius = int(self.radius_bar.val)
 
             self.body.render_velocity(surf)
-            self.name_bar.render(surf)
+            self.name_textbox.render(surf)
+            self.orbit_tickbox.render(surf)    
+            self.mass_textbox.render(surf)

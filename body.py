@@ -1,28 +1,5 @@
 import pygame
-import numpy as np
-
-arrow_vertices = (np.array(((0, 100), (0, 200), (200, 200), (200, 300), (300, 150), (200, 0), (200, 100)))-150)*np.array([1.35,0.65])/5
-
-def rotate(x: np.ndarray, angle: float) -> np.ndarray:
-    '''
-        Rotates the 2d polygon described by the list of its vertices x by the given angle (in radians)
-    '''
-    rotation_mat = np.array([[np.math.cos(angle), -np.math.sin(angle)], 
-                            [np.math.sin(angle), np.math.cos(angle)]])
-    return x@rotation_mat
-
-def draw_vector(surf: pygame.Surface, vector: np.ndarray, scale: float, pos) -> None:
-    '''
-        Draws the vector vector on the surface surf with a length of scale in the (x,y) position pos
-    '''
-    global arrow_vertices
-    angle = np.arccos(np.clip(vector[0]/np.linalg.norm(vector), -1.0, 1.0))
-    if vector[1] > 0:
-        angle *= -1
-    poly = arrow_vertices*min(np.log(scale*2+1),30) # scale the polygon based on gravitational force
-    poly = rotate(poly, angle) # apply the correct rotation
-    poly += pos # translate to the right position
-    pygame.draw.polygon(surf, (255,255,255), poly)
+from utils import *
 
 # mass = 1 -> the mass of the body is the mass of the eart (5.972 x 10^24 Kg)
 # with 1 pix = 10^6 km
@@ -42,16 +19,28 @@ class Body:
         self.name = name
 
     def update(self, time_step) -> None:
+        '''
+            Updates the body's position to the one after time_step days have passed
+        '''
         self.pos += self.vel*time_step
 
     def render(self, surf: pygame.Surface) -> None:
+        '''
+            Renders the body on the given pygame surface surf.
+        '''
         pygame.draw.circle(surf, self.COLOR, (int(self.pos[0]), int(self.pos[1])), self.radius)
 
     def render_velocity(self, surf: pygame.Surface) -> None:
+        '''
+            Renders the velocity vector of the body in its position
+        '''
         if self.get_abs_vel() != 0:
             draw_vector(surf, self.vel, np.log(self.get_abs_vel()*1e-2+1), self.pos)
 
-    def get_dist(self, pos):
+    def get_dist(self, pos) -> float:
+        '''
+            Returns the distance between the body and the given point
+        '''
         return np.linalg.norm(self.pos-pos)
 
     def set_mass(self, mass):
@@ -68,6 +57,10 @@ class Body:
         self.vel += acc
 
     def get_grav_pull(self, pos: np.ndarray, time_step):
+        '''
+            Returns the gravitational field vector given by the attraction from this body in the
+            given position over time_step amount of days
+        '''
         if np.array_equal(self.pos, pos):
             return np.zeros(2)
 
@@ -77,6 +70,9 @@ class Body:
         return acc
 
     def get_abs_vel(self) -> float:
+        '''
+            Returns the length of the velocity vector of the body
+        '''
         return np.linalg.norm(self.vel)
 
     def is_on_body(self, pos) -> bool:
@@ -90,3 +86,16 @@ class Body:
     
     def set_vel(self, vel) -> None:
         self.vel = np.array(vel, dtype=np.float64)
+
+    def get_mass_kg(self) -> float:
+        '''
+            Returns the mass of the object in kilograms
+        '''
+        return self.mass*Body.EARTH_MASS
+
+    def get_mass_str(self) -> str:
+        '''
+            Returns a string with the mass of the object written in scientific
+            notation in kilograms
+        '''
+        return ("%.3g" % self.get_mass_kg()).replace("e", "*10^").replace("+","") + " kg"
