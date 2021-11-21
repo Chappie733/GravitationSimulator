@@ -1,10 +1,9 @@
 import pygame
 from body import Body
 import time
-from utils import load_texture, clamp, load_spritesheet
+from utils import load_texture, clamp, load_spritesheet, adapt_ratio
 
 TIME_UPDATE_EVENT = pygame.USEREVENT+1
-
 
 class UI:
 
@@ -173,6 +172,7 @@ class ProgressBar(UIElement):
 
 
 class TextBox(UIElement):
+    DEFAULT_TEXTURE = load_texture('textbox.png')
 
     def __init__(self, pos, size, max_len=9, texture=None, parent=None, enable_on_click=False, letter_width=0.5) -> None:
         '''
@@ -184,7 +184,7 @@ class TextBox(UIElement):
         enable_on_click -> whether the textbox is only enabled (and rendered) after it's been clicked on.\\
         letter_width -> a number determining the size of each letter (it has to be between 0 and 1)
         '''
-        super().__init__(pos, size, texture=texture, parent=parent)
+        super().__init__(pos, size, texture=texture if texture is not None else self.DEFAULT_TEXTURE, parent=parent)
         self.content = ""
         self.text = self.font.render("", False, (255,255,255))
         self.max_len = max_len
@@ -200,9 +200,14 @@ class TextBox(UIElement):
         self.text = pygame.transform.scale(self.font.render(self.content, False, (255,255,255)), text_size) # the text has to be re-rendered
 
     def on_click(self, mouse_pos):
+        '''
+            Returns true if the textbox was selected/deselected
+        '''
+        was_active = self.active
         self.active = super().is_on_element(mouse_pos)
         if self.enable_on_click:
             self.enabled = self.active
+        return was_active != self.active
 
     def handle_event(self, event) -> None:
         if not self.active or not self.enabled:
@@ -330,23 +335,25 @@ class TimeUI(UIElement):
     def __init__(self, w, h) -> None:
         super().__init__((0,0), (int(196*w/800),int(100*h/600)), "time_gui_background.png")
         self.days = 0
-        self.x_ratio, self.y_ratio = w/800.0, h/600.0 
+        self.ratio = (w/800.0, h/600.0)
         self.enabled = True
-        self.pause_box = Tickbox((int(82*self.x_ratio), int(60*self.y_ratio)),
-                                    (int(24*self.x_ratio),int(24*self.y_ratio)),
+        self.pause_box = Tickbox(adapt_ratio((82,60), self.ratio),
+                                    adapt_ratio((24,24), self.ratio),
                                     textures=load_spritesheet("time_toggle.png"),
                                     parent=self)
-        self.speed_up_button = Button((int(131*self.x_ratio), int(60*self.y_ratio)),
-                                      (int(24*self.x_ratio), int(24*self.y_ratio)),
+        self.speed_up_button = Button(adapt_ratio((131,60), self.ratio),
+                                      adapt_ratio((24,24), self.ratio),
                                       textures=load_spritesheet("speedup_button.png", tile_w=32, tile_h=32),
                                       parent=self)
-        self.slow_down_button = Button((int(33*self.x_ratio), int(60*self.y_ratio)),
-                                      (int(24*self.x_ratio), int(24*self.y_ratio)),
+        self.slow_down_button = Button(adapt_ratio((33,60), self.ratio),
+                                      adapt_ratio((24,24), self.ratio),
                                       textures=load_spritesheet("slowdown_button.png", tile_w=32, tile_h=32),
                                       parent=self)
-        self.time_rate_bar = ProgressBar((int(5*self.x_ratio),int(32*self.y_ratio)), (int(180*self.x_ratio),int(24*self.y_ratio)), 
+        self.time_rate_bar = ProgressBar(adapt_ratio((5,32), self.ratio), 
+                                        adapt_ratio((180,24), self.ratio), 
                                         min_val=0, val=4, max_val=8, 
-                                        texture="progressbar.png", discrete=True, fill_y_offset=int(2*self.x_ratio), fill_y_size=int(21*self.y_ratio),
+                                        texture="progressbar.png", discrete=True, 
+                                        fill_y_offset=int(2*self.ratio[1]), fill_y_size=int(21*self.ratio[1]),
                                         parent=self, fill_color=(115,115,115))
 
     def on_click(self, mouse_pos) -> None:
@@ -377,7 +384,7 @@ class TimeUI(UIElement):
             Updates the text showing the amount of time passed
         '''
         self.time_text = self.font.render(f"Giorni passati: {int(self.days)}", False, (255,255,255))
-        self.time_text = pygame.transform.scale(self.time_text, (int(182*self.x_ratio), int(19*self.y_ratio)))
+        self.time_text = pygame.transform.scale(self.time_text, adapt_ratio((182,19), self.ratio))
 
     def update(self, *args) -> None:
         self.days += self.get_time_rate()
@@ -385,7 +392,7 @@ class TimeUI(UIElement):
     def render(self, surf: pygame.Surface) -> None:
         super().render(surf)
         self._update_text()
-        surf.blit(self.time_text, (int(5*self.x_ratio), int(10*self.y_ratio))) 
+        surf.blit(self.time_text, adapt_ratio((5,10), self.ratio)) 
 
         self.pause_box.render(surf)
         self.speed_up_button.render(surf)
@@ -410,19 +417,27 @@ class PlanetUI(UIElement):
     def __init__(self, w, h) -> None:
         super().__init__((int(500*w/800),int(400*h/600)), (int(256*w/800),int(166*h/600)), "gui_background.png")
         # the values were adjusted for this resolution, this way they can be scaled to any given resolution
-        self.x_ratio, self.y_ratio = w/800.0, h/600.0 
-        self.mass_bar = ProgressBar((int(30*self.x_ratio), int(37*self.y_ratio)), (int(190*self.x_ratio),int(22*self.y_ratio)), 
+        self.ratio = (w/800.0, h/600.0)
+        self.mass_bar = ProgressBar(adapt_ratio((30, 37), self.ratio), 
+                                    adapt_ratio((190, 22), self.ratio), 
                                     min_val=self.MOON_MASS, val=1, max_val=10**6, parent=self)
-        self.mass_textbox = TextBox((int(100*self.x_ratio), int(13*self.y_ratio)), 
-                                    (int(125*self.x_ratio), int(20*self.y_ratio)),
-                                    max_len=14, texture="textbox.png",
-                                    parent=self, enable_on_click=True, letter_width=0.9)
-        self.radius_bar = ProgressBar((int(32*self.x_ratio),int(85*self.y_ratio)), (int(190*self.x_ratio), int(22*self.y_ratio)), 
+        self.mass_textbox = TextBox(adapt_ratio((100, 13), self.ratio), 
+                                    adapt_ratio((125, 20), self.ratio),
+                                    max_len=14, parent=self,
+                                    enable_on_click=True, letter_width=0.9)
+        self.radius_bar = ProgressBar(adapt_ratio((32,85), self.ratio), 
+                                    adapt_ratio((190,22), self.ratio), 
                                     min_val=1, val=3, max_val=17, parent=self)
-        self.name_textbox = TextBox((int(20*self.x_ratio),int(-30*self.y_ratio)), (int(216*self.x_ratio), int(40*self.y_ratio)), 
-                                    max_len=10, texture='textbox.png', 
+        self.name_textbox = TextBox(adapt_ratio((20,-30), self.ratio), 
+                                    adapt_ratio((216, 40), self.ratio), 
+                                    max_len=10, 
                                     parent=self, letter_width=0.75)
-        self.orbit_tickbox = Tickbox((int(180*self.x_ratio), int(133*self.y_ratio)), (18,18), parent=self)
+        self.vel_textbox = TextBox(adapt_ratio((117, 110), self.ratio),
+                                    adapt_ratio((125,20), self.ratio),
+                                    max_len=14, parent=self,
+                                    enable_on_click=True, letter_width=0.9)
+        self.orbit_tickbox = Tickbox(adapt_ratio((180,133), self.ratio), 
+                                    adapt_ratio((18,18), self.ratio), parent=self)
         self.body = None
         self.body_path = []
         self.dragging = False # whether the selected body is being dragged
@@ -434,7 +449,7 @@ class PlanetUI(UIElement):
             force_update -> whether to force the update of the text of the mass of the body, if it's false (as default)
             it might not be updated due to an optimization technique.
         '''
-        self.vel_text = super().font.render(str(round(self.body.get_abs_vel(), 2))+"*10^6 km/day", False, (255,255,255))
+        self.vel_text = super().font.render(self.body.get_vel_str(), False, (255,255,255))
         # only update the text of the mass if it has been changed
         if self.mass_bar.enabled or 'mass_text' not in dir(self) or force_update: 
             self.mass_text = super().font.render(self.body.get_mass_str(), False, (255,255,255))
@@ -444,8 +459,17 @@ class PlanetUI(UIElement):
         self.radius_bar.on_click(mouse_pos)
         self.name_textbox.on_click(mouse_pos)
         self.orbit_tickbox.on_click(mouse_pos)
-        self.mass_textbox.on_click(mouse_pos)
-        if self.name_textbox.active:
+        
+        # if the velocity has been typed in apply the changes
+        if self.vel_textbox.on_click(mouse_pos):
+            self.body.set_vel_str(self.vel_textbox.content)
+            self.vel_text = super().font.render(self.body.get_vel_str(), False, (255,255,255))
+        # if the mass has been typed in apply the changes
+        if self.mass_textbox.on_click(mouse_pos):
+            self.body.set_mass_str(self.mass_textbox.content)
+            self.mass_text = super().font.render(self.body.get_mass_str(), False, (255,255,255)) # UPDATE THE MASS' TEXT
+        # make sure the UI keeps rendering it the click was outside its region but inside the name textbox's
+        if self.name_textbox.active: 
             self.enabled = True
         if self.body is not None:
             if self.body.is_on_body(mouse_pos):
@@ -455,6 +479,7 @@ class PlanetUI(UIElement):
     def handle_event(self, event) -> None:
         self.name_textbox.handle_event(event)
         self.mass_textbox.handle_event(event)
+        self.vel_textbox.handle_event(event)
         if self.name_textbox.active and event.type == pygame.KEYDOWN: # a letter has been typed in the name field
             self.body.name = self.name_textbox.content
 
@@ -492,7 +517,8 @@ class PlanetUI(UIElement):
         self.body = body
         self.update_texts(force_update=True) # re-render the velocity and mass text
         self.name_textbox.set_text(self.body.name)
-        self.mass_textbox.set_text(self.body.get_mass_str())
+        self.mass_textbox.set_text(self.body.get_mass_str()[:-3]) # the [:-3] part is to remove the "kg" text
+        self.vel_textbox.set_text(self.body.get_vel_str()[:-7]) # the [:-7] part is to remove the " km/day" text
         self.orbit_tickbox.set_ticked(False)
         self.body_path = []
 
@@ -513,8 +539,8 @@ class PlanetUI(UIElement):
 
             self.mass_bar.render(surf)
             self.radius_bar.render(surf)
-            surf.blit(self.vel_text, (self.pos[0]+int(120*self.x_ratio), self.pos[1]+int(115*self.y_ratio))) # velocity text
-            surf.blit(self.mass_text, (self.pos[0]+int(100*self.x_ratio), self.pos[1]+int(17*self.y_ratio)))
+            surf.blit(self.vel_text, (self.pos[0]+int(117*self.ratio[0]), self.pos[1]+int(115*self.ratio[1]))) # velocity text
+            surf.blit(self.mass_text, (self.pos[0]+int(100*self.ratio[0]), self.pos[1]+int(17*self.ratio[1])))
 
             # if the mass or the radius was changed, change the body's parameters accordingly
             if self.mass_bar.enabled:
@@ -526,3 +552,4 @@ class PlanetUI(UIElement):
             self.name_textbox.render(surf)
             self.orbit_tickbox.render(surf)    
             self.mass_textbox.render(surf)
+            self.vel_textbox.render(surf)

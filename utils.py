@@ -42,7 +42,7 @@ def load_spritesheet(source, tile_w=32, tile_h=32, new_size=None):
         new_size -> the size to which each image is scaled after it's loaded
     '''
     if isinstance(source, str):
-        source = pygame.image.load(os.path.join('res', source))
+        source = pygame.image.load(os.path.join(res_path, source))
     
     textures = []
     num_x_tiles = source.get_width()//tile_w # number of tiles horizontally
@@ -61,6 +61,15 @@ def load_texture(source: str, size=None) -> pygame.Surface:
     return img
 
 def clamp(num, minimum=0, maximum=1):
+    '''
+        Restricts the value of num in the interval [minimum, maximum]
+    '''
     num = num if minimum <= num else minimum
     num = num if maximum >= num else maximum
     return num
+
+def adapt_ratio(vals: tuple, ratio: tuple) -> tuple:
+    '''
+        If vals = (x,y) and ratio = (rx,ry) this returns (int(x*rx), int(y*rx))
+    '''
+    return (int(vals[0]*ratio[0]), int(vals[1]*ratio[1]))
