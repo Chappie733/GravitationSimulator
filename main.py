@@ -25,7 +25,6 @@ def main():
     gui.add_widget(PlanetUI(W,H))
     gui.add_widget(TimeUI(W,H))
 
-
     while running:
         clock.tick(fps)
         mouse_vel = pygame.mouse.get_rel() # mouse velocity

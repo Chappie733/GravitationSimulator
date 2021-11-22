@@ -93,6 +93,12 @@ class Body:
     def set_vel(self, vel) -> None:
         self.vel = np.array(vel, dtype=np.float64)
 
+    def set_vel_angle(self, angle: float) -> None:
+        '''
+            Sets the angle of the velocity to the value of angle
+        '''
+        self.vel = np.array([np.cos(angle), -np.sin(angle)])*np.linalg.norm(self.vel)
+
     def get_mass_kg(self) -> float:
         '''
             Returns the mass of the object in kilograms

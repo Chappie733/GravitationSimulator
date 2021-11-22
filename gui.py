@@ -1,7 +1,7 @@
 import pygame
 from body import Body
 import time
-from utils import load_texture, clamp, load_spritesheet, adapt_ratio
+from utils import load_texture, clamp, load_spritesheet, adapt_ratio, get_angle, rotate_texture
 
 TIME_UPDATE_EVENT = pygame.USEREVENT+1
 
@@ -99,8 +99,22 @@ class UIElement:
 
     def render(self, surf: pygame.Surface) -> None:
         if self.enabled:
-            src = (0,0) if self.parent is None else self.parent.pos
-            surf.blit(self.texture, (src[0]+self.pos[0], src[1]+self.pos[1]))
+            surf.blit(self.texture, self.get_abs_pos())
+
+    def get_parent_pos(self) -> tuple:
+        '''
+            Returns the position of the parent widget
+        '''
+        return (0,0) if self.parent is None else self.parent.pos
+
+    def get_abs_pos(self, pos=None) -> tuple:
+        '''
+            Returns the absolute position of the widget (relative to its parent), if
+            pos is not passed this uses as a position the widget's position
+        '''
+        pos = pos if pos is not None else self.pos
+        parent_pos = self.get_parent_pos()
+        return (pos[0]+parent_pos[0], pos[1]+parent_pos[1])
 
     @staticmethod
     def init_font(W=800) -> None:
@@ -117,7 +131,8 @@ class ProgressBar(UIElement):
     PROGRESS_COLOR = (255,255,0)
 
     def __init__(self, pos, size, min_val=0, val=50, max_val=100, texture=None, parent=None, 
-                interactable=True, discrete=False, fill_y_offset=0, fill_y_size=0, fill_color=None) -> None:
+                interactable=True, discrete=False, fill_y_offset=0, fill_y_size=0, fill_color=None,
+                continuous=True) -> None:
         '''
             pos -> (x,y) pixel position of the element\n
             size -> (width, height) pixel size of the element\n
@@ -140,6 +155,7 @@ class ProgressBar(UIElement):
         self.fill_y_size = fill_y_size if fill_y_size != 0 else self.size[1]
         self.fill_y_offset = fill_y_offset
         self.fill_color = fill_color if fill_color is not None else self.PROGRESS_COLOR
+        self.continuous = continuous
 
     def on_click(self, mouse_pos) -> bool:
         '''
@@ -156,8 +172,11 @@ class ProgressBar(UIElement):
 
 
     def on_mouse_motion(self, mouse_pos, *args) -> None:
-        if pygame.mouse.get_pressed()[0]:
-            self.on_click(mouse_pos)
+        '''
+            Returns whether the value of the progress bar was changed (which implies the mouse is clicked)
+        '''
+        if self.continuous and pygame.mouse.get_pressed()[0]:
+            return self.on_click(mouse_pos)
     
     def render(self, surf: pygame.Surface) -> None:
         prog_w = int((self.val-self.min_val)/(self.max_val-self.min_val)*self.size[0]) # width of the progress color (in pixels)
@@ -167,8 +186,7 @@ class ProgressBar(UIElement):
         pygame.draw.rect(surf, self.fill_color, (src[0]+self.pos[0], src[1]+self.pos[1]+self.fill_y_offset, prog_w, self.fill_y_size))
         # draws the background image if it's present
         if self.texture is not None:
-            src = (0,0) if self.parent is None else self.parent.pos
-            surf.blit(self.texture, (src[0]+self.pos[0], src[1]+self.pos[1]))
+            surf.blit(self.texture, self.get_abs_pos(self.pos))
 
 
 class TextBox(UIElement):
@@ -210,17 +228,23 @@ class TextBox(UIElement):
         return was_active != self.active
 
     def handle_event(self, event) -> None:
+        '''
+            Returns whether a new character was added to the content of the textbox
+        '''
         if not self.active or not self.enabled:
-            return
+            return False
         if event.type == pygame.KEYDOWN:
             if event.key == 8 and len(self.content) > 0: # delete key has been pressed
                 self.set_text(self.content[:-1])
+                return True
             elif len(self.content) < self.max_len and event.key not in (8,pygame.K_LSHIFT,pygame.K_RSHIFT,pygame.K_ESCAPE):
                 keys = pygame.key.get_pressed()
                 addition = chr(event.key)
                 if keys[pygame.K_RSHIFT] or keys[pygame.K_LSHIFT]:
                     addition = chr(event.key-32) # make the letter a capital
                 self.set_text(self.content+addition) # add the newly typed letter into the text contained by the textbox
+                return True
+        return False
 
     def render(self, surf: pygame.Surface) -> None:
         if self.enabled:
@@ -327,6 +351,48 @@ class Tickbox(UIElement):
         self.ticked = ticked
         self.texture_state = 0
 
+class AngleSelector(UIElement):
+    DEFAULT_TEXTURE = load_texture("angle_setter.png")
+    ARROW_TEXTURE = load_texture("angle_arrow.png")
+
+    def __init__(self, pos, size, texture=None, parent=None, arrow_scale=0.6, continuous=True) -> None:
+        super().__init__(pos, size, texture=texture if texture is not None else self.DEFAULT_TEXTURE, parent=parent)
+        self.angle = 0 # in radians
+        # size of the arrow scaled with the size of the widget
+        self.arrow_size = adapt_ratio((10,22), (arrow_scale*self.size[0]/25, arrow_scale*self.size[1]/25))
+        self.arrow_texture = pygame.transform.scale(self.ARROW_TEXTURE, self.arrow_size)
+        self.center_pos = self.get_abs_pos((self.pos[0]+self.size[0]//2, self.pos[1]+self.size[1]//2))
+        # the original rect of the image has its center in the exact middle of the widget
+        self.arrow_rect = self.arrow_texture.get_rect(center=self.center_pos) 
+        self.enabled = True
+        self.continuous = continuous
+
+    def set_angle(self, angle: float):
+        self.angle = angle
+        self.arrow_texture = pygame.transform.scale(self.ARROW_TEXTURE, self.arrow_size) # scale to the original size
+        self.arrow_texture, _ = rotate_texture(self.arrow_texture, angle, self.center_pos) # rotate the image
+        # update the rect to render it in the correct position
+        self.arrow_rect = self.arrow_texture.get_rect(center=self.arrow_texture.get_rect(center=self.center_pos).center) 
+
+    def on_click(self, mouse_pos):
+        '''
+            Returns whether the value of the angle was changed or not
+        '''
+        if self.is_on_element(mouse_pos):
+            # y flipped because of pygame's coordinate system, where y increases going downwards
+            self.set_angle(get_angle((mouse_pos[0]-self.arrow_rect.center[0], -mouse_pos[1]+self.arrow_rect.center[1]))) 
+            return True
+        return False
+
+    def on_mouse_motion(self, mouse_pos):
+        if self.continuous and pygame.mouse.get_pressed()[0]:
+            return self.on_click(mouse_pos)
+
+    def render(self, surf: pygame.Surface) -> None:
+        super().render(surf)
+        if self.enabled:
+            surf.blit(self.arrow_texture, self.arrow_rect)
+
 class TimeUI(UIElement):
     MAX_TIME_RATE = 2
     MIN_TIME_RATE = 0.25
@@ -415,7 +481,7 @@ class PlanetUI(UIElement):
     MAX_BODY_PATH_LEN = 500 # the maximum amount of positions rendered when drawing the path of a body
 
     def __init__(self, w, h) -> None:
-        super().__init__((int(500*w/800),int(400*h/600)), (int(256*w/800),int(166*h/600)), "gui_background.png")
+        super().__init__((int(500*w/800),int(400*h/600)), (int(256*w/800),int(190*h/600)), "gui_bg_new.png")
         # the values were adjusted for this resolution, this way they can be scaled to any given resolution
         self.ratio = (w/800.0, h/600.0)
         self.mass_bar = ProgressBar(adapt_ratio((30, 37), self.ratio), 
@@ -425,7 +491,7 @@ class PlanetUI(UIElement):
                                     adapt_ratio((125, 20), self.ratio),
                                     max_len=14, parent=self,
                                     enable_on_click=True, letter_width=0.9)
-        self.radius_bar = ProgressBar(adapt_ratio((32,85), self.ratio), 
+        self.radius_bar = ProgressBar(adapt_ratio((30,83), self.ratio), 
                                     adapt_ratio((190,22), self.ratio), 
                                     min_val=1, val=3, max_val=17, parent=self)
         self.name_textbox = TextBox(adapt_ratio((20,-30), self.ratio), 
@@ -436,8 +502,9 @@ class PlanetUI(UIElement):
                                     adapt_ratio((125,20), self.ratio),
                                     max_len=14, parent=self,
                                     enable_on_click=True, letter_width=0.9)
-        self.orbit_tickbox = Tickbox(adapt_ratio((180,133), self.ratio), 
+        self.orbit_tickbox = Tickbox(adapt_ratio((175,160), self.ratio), 
                                     adapt_ratio((18,18), self.ratio), parent=self)
+        self.vangle_setter = AngleSelector((30,130), (25,25), parent=self) # velocity angle setter
         self.body = None
         self.body_path = []
         self.dragging = False # whether the selected body is being dragged
@@ -455,10 +522,18 @@ class PlanetUI(UIElement):
             self.mass_text = super().font.render(self.body.get_mass_str(), False, (255,255,255))
 
     def on_click(self, mouse_pos) -> None:
-        self.mass_bar.on_click(mouse_pos)
-        self.radius_bar.on_click(mouse_pos)
         self.name_textbox.on_click(mouse_pos)
         self.orbit_tickbox.on_click(mouse_pos)
+        
+        # the angle of the velocity has been changed
+        if self.vangle_setter.on_click(mouse_pos):
+            self.body.set_vel_angle(self.vangle_setter.angle)
+        # if the mass' progress bar value was changed update it
+        if self.mass_bar.on_click(mouse_pos):
+            self.body.set_mass(self.mass_bar.val)
+        # if the radius' progress bar value was changed update it
+        if self.radius_bar.on_click(mouse_pos):
+            self.body.radius = int(self.radius_bar.val)
         
         # if the velocity has been typed in apply the changes
         if self.vel_textbox.on_click(mouse_pos):
@@ -477,11 +552,15 @@ class PlanetUI(UIElement):
                 self.click_start = time.time()
 
     def handle_event(self, event) -> None:
-        self.name_textbox.handle_event(event)
+        if self.name_textbox.handle_event(event):
+            self.body.name = self.name_textbox.content
+            print(self.body.name)
         self.mass_textbox.handle_event(event)
         self.vel_textbox.handle_event(event)
+        '''
         if self.name_textbox.active and event.type == pygame.KEYDOWN: # a letter has been typed in the name field
             self.body.name = self.name_textbox.content
+        '''
 
     def on_mouse_motion(self, mouse_pos) -> None:
         if self.dragging:
@@ -490,9 +569,16 @@ class PlanetUI(UIElement):
                 self.body.set_vel((0,0))
             self.enabled = not self.is_on_element(mouse_pos)
         else:
-            self.mass_bar.on_mouse_motion(mouse_pos)
-            self.radius_bar.on_mouse_motion(mouse_pos)
-    
+            # if the value of the mass bar has been changed update the body's value
+            if self.mass_bar.on_mouse_motion(mouse_pos):
+                self.body.set_mass(self.mass_bar.val)
+            # if the value of the radius bar has been changed update the body's value
+            if self.radius_bar.on_mouse_motion(mouse_pos):
+                self.body.radius = int(self.radius_bar.val)
+            # the angle of the velocity has been changed
+            if self.vangle_setter.on_mouse_motion(mouse_pos):
+                self.body.set_vel_angle(self.vangle_setter.angle)
+
     def on_click_release(self, mouse_pos, *args) -> None:
         self.orbit_tickbox.on_click_release(mouse_pos)
         if self.dragging:
@@ -542,14 +628,9 @@ class PlanetUI(UIElement):
             surf.blit(self.vel_text, (self.pos[0]+int(117*self.ratio[0]), self.pos[1]+int(115*self.ratio[1]))) # velocity text
             surf.blit(self.mass_text, (self.pos[0]+int(100*self.ratio[0]), self.pos[1]+int(17*self.ratio[1])))
 
-            # if the mass or the radius was changed, change the body's parameters accordingly
-            if self.mass_bar.enabled:
-                self.body.set_mass(self.mass_bar.val)
-            elif self.radius_bar.enabled: 
-                self.body.radius = int(self.radius_bar.val)
-
             self.body.render_velocity(surf)
             self.name_textbox.render(surf)
             self.orbit_tickbox.render(surf)    
             self.mass_textbox.render(surf)
             self.vel_textbox.render(surf)
+            self.vangle_setter.render(surf)

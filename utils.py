@@ -26,9 +26,7 @@ def draw_vector(surf: pygame.Surface, vector: np.ndarray, scale: float, pos) -> 
         Draws the vector vector on the surface surf with a length of scale in the (x,y) position pos
     '''
     global arrow_vertices
-    angle = np.arccos(np.clip(vector[0]/np.linalg.norm(vector), -1.0, 1.0))
-    if vector[1] > 0:
-        angle *= -1
+    angle = get_angle((vector[0], -vector[1])) # the y component is flipped because of pygame's coordinate system
     poly = arrow_vertices*min(np.log(scale*2+1),30) # scale the polygon based on gravitational force
     poly = rotate(poly, angle) # apply the correct rotation
     poly += pos # translate to the right position
@@ -73,3 +71,29 @@ def adapt_ratio(vals: tuple, ratio: tuple) -> tuple:
         If vals = (x,y) and ratio = (rx,ry) this returns (int(x*rx), int(y*rx))
     '''
     return (int(vals[0]*ratio[0]), int(vals[1]*ratio[1]))
+
+def get_angle(vector):
+    '''
+        Returns the angle made by a vector, it goes from -π to π
+    '''
+    angle = np.arccos(np.clip(vector[0]/np.linalg.norm(vector), -1.0, 1.0))
+    if vector[1] < 0:
+        return -angle
+    return angle
+
+def rotate_texture(texture: pygame.Surface, angle: float, topleft_pos=(0,0)):
+    '''
+        Takes a texture returns its rotated version and its new position.\n
+        Parameters:\n
+        \ttexture -> the texture to be rotated\n
+        \tangle -> the angle by which to rotate the texture\n
+        \tpos -> the original position of the texture on the screen\n
+        Returns:\n
+        \t- The rotated version of the image (as a pygame.Surface instance)\n
+        \t- The new position of the texture (which is just the offset if pos was not passed)\n
+
+    '''
+    # for some reason pygame starts with an angle of 0 equal to a rotation of π/2
+    rotated = pygame.transform.rotate(texture, angle*180/np.pi-90) 
+    new_rect = rotated.get_rect(center=texture.get_rect(topleft=topleft_pos).center)
+    return rotated, new_rect
