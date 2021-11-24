@@ -1,3 +1,4 @@
+from operator import invert
 import pygame
 import numpy as np
 import os
@@ -26,7 +27,7 @@ def draw_vector(surf: pygame.Surface, vector: np.ndarray, scale: float, pos) -> 
         Draws the vector vector on the surface surf with a length of scale in the (x,y) position pos
     '''
     global arrow_vertices
-    angle = get_angle((vector[0], -vector[1])) # the y component is flipped because of pygame's coordinate system
+    angle = get_angle((vector[0], vector[1])) # the y component is flipped because of pygame's coordinate system
     poly = arrow_vertices*min(np.log(scale*2+1),30) # scale the polygon based on gravitational force
     poly = rotate(poly, angle) # apply the correct rotation
     poly += pos # translate to the right position
@@ -72,14 +73,38 @@ def adapt_ratio(vals: tuple, ratio: tuple) -> tuple:
     '''
     return (int(vals[0]*ratio[0]), int(vals[1]*ratio[1]))
 
-def get_angle(vector):
+def get_angle(vector, invert_y=True):
     '''
-        Returns the angle made by a vector, it goes from -π to π
+        Returns the angle made by a vector, it goes from -π to π.\n
+        vector -> the vector to which the angle corresponds.\n
+        invert_y -> whether to invert the y axis in the vector (to adapt to pygame's
+        coordinate system).
     '''
-    angle = np.arccos(np.clip(vector[0]/np.linalg.norm(vector), -1.0, 1.0))
-    if vector[1] < 0:
+    vec_length = np.linalg.norm(vector)
+    if vec_length == 0:
+        return 0
+    angle = np.arccos(np.clip(vector[0]/vec_length, -1.0, 1.0))
+    # 1-2*int(invert_y) is 1 if invert_y is False, and -1 otherwise
+    if vector[1]*(1-2*int(invert_y)) < 0:
         return -angle
     return angle
+
+# "angle convert"
+def aconvert(angle: float, rad_to_deg=True) -> int:
+    '''
+        Converts an angle from radians to degrees and viceversa
+        if rad_to_deg is True this takes in an angle from -π to π and returns its representation as a degree from 0 to 360.\n
+        if rad_to_deg is False this takes an angle from 0 to 360 and returns its representation as a radian value from -π to π
+    '''
+    if rad_to_deg: # convert [-π,π] -> [0,360]
+        deg_angle = angle*180/np.pi
+        deg_angle += 360 if deg_angle < 0 else 0
+        return round(deg_angle)
+
+    # covert [0,360] -> [-π,π]
+    rad_angle = angle*np.pi/180
+    rad_angle += -2*np.pi if rad_angle > np.pi else 0
+    return rad_angle
 
 def rotate_texture(texture: pygame.Surface, angle: float, topleft_pos=(0,0)):
     '''

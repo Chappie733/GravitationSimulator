@@ -1,7 +1,7 @@
 import pygame
 from body import Body
 import time
-from utils import load_texture, clamp, load_spritesheet, adapt_ratio, get_angle, rotate_texture
+from utils import load_texture, clamp, load_spritesheet, adapt_ratio, get_angle, rotate_texture, aconvert
 
 TIME_UPDATE_EVENT = pygame.USEREVENT+1
 
@@ -380,7 +380,7 @@ class AngleSelector(UIElement):
         '''
         if self.is_on_element(mouse_pos):
             # y flipped because of pygame's coordinate system, where y increases going downwards
-            self.set_angle(get_angle((mouse_pos[0]-self.arrow_rect.center[0], -mouse_pos[1]+self.arrow_rect.center[1]))) 
+            self.set_angle(get_angle((mouse_pos[0]-self.arrow_rect.center[0], mouse_pos[1]-self.arrow_rect.center[1]))) 
             return True
         return False
 
@@ -498,13 +498,16 @@ class PlanetUI(UIElement):
                                     adapt_ratio((216, 40), self.ratio), 
                                     max_len=10, 
                                     parent=self, letter_width=0.75)
-        self.vel_textbox = TextBox(adapt_ratio((117, 110), self.ratio),
+        self.vel_textbox = TextBox(adapt_ratio((117, 130), self.ratio),
                                     adapt_ratio((125,20), self.ratio),
                                     max_len=14, parent=self,
                                     enable_on_click=True, letter_width=0.9)
-        self.orbit_tickbox = Tickbox(adapt_ratio((175,160), self.ratio), 
+        self.angle_textbox = TextBox(adapt_ratio((125,155), self.ratio),
+                                     adapt_ratio((60,25), self.ratio),
+                                     max_len=3, parent=self, enable_on_click=True)
+        self.orbit_tickbox = Tickbox(adapt_ratio((175,110), self.ratio), 
                                     adapt_ratio((18,18), self.ratio), parent=self)
-        self.vangle_setter = AngleSelector((30,130), (25,25), parent=self) # velocity angle setter
+        self.vangle_setter = AngleSelector((30,150), (25,25), parent=self) # velocity angle setter
         self.body = None
         self.body_path = []
         self.dragging = False # whether the selected body is being dragged
@@ -517,32 +520,48 @@ class PlanetUI(UIElement):
             it might not be updated due to an optimization technique.
         '''
         self.vel_text = super().font.render(self.body.get_vel_str(), False, (255,255,255))
+        self.angle_text = super().font.render(self.body.get_angle_str(), False, (255,255,255))
         # only update the text of the mass if it has been changed
         if self.mass_bar.enabled or 'mass_text' not in dir(self) or force_update: 
             self.mass_text = super().font.render(self.body.get_mass_str(), False, (255,255,255))
 
-    def on_click(self, mouse_pos) -> None:
-        self.name_textbox.on_click(mouse_pos)
+    def __widgets_click(self, mouse_pos) -> None:
+        '''
+            Lets every widget handle a click event in the given mouse position, and updates their
+            corresponding values in the self.body instance
+        '''
         self.orbit_tickbox.on_click(mouse_pos)
-        
-        # the angle of the velocity has been changed
+
+        # PROGRESS BARS AND TICKBOXES     
         if self.vangle_setter.on_click(mouse_pos):
             self.body.set_vel_angle(self.vangle_setter.angle)
-        # if the mass' progress bar value was changed update it
         if self.mass_bar.on_click(mouse_pos):
             self.body.set_mass(self.mass_bar.val)
-        # if the radius' progress bar value was changed update it
         if self.radius_bar.on_click(mouse_pos):
             self.body.radius = int(self.radius_bar.val)
         
-        # if the velocity has been typed in apply the changes
+        # TEXTBOXES
+        if self.name_textbox.on_click(mouse_pos):
+            self.body.name = self.name_textbox.content   
         if self.vel_textbox.on_click(mouse_pos):
             self.body.set_vel_str(self.vel_textbox.content)
             self.vel_text = super().font.render(self.body.get_vel_str(), False, (255,255,255))
-        # if the mass has been typed in apply the changes
         if self.mass_textbox.on_click(mouse_pos):
             self.body.set_mass_str(self.mass_textbox.content)
             self.mass_text = super().font.render(self.body.get_mass_str(), False, (255,255,255)) # UPDATE THE MASS' TEXT
+        if self.angle_textbox.on_click(mouse_pos):
+            # if the textbox was disabled
+            if not self.angle_textbox.enabled:
+                rad_angle = aconvert(int(self.angle_textbox.content)%360, rad_to_deg=False)
+                self.body.set_vel_angle(rad_angle)
+                self.angle_text = super().font.render(self.body.get_angle_str(), False, (255,255,255))
+                self.vangle_setter.set_angle(rad_angle)
+            else: # the angle textbox was activated
+                self.angle_textbox.set_text(str(aconvert(get_angle(self.body.vel))))
+
+    def on_click(self, mouse_pos) -> None:
+        self.__widgets_click(mouse_pos) # let every widget handle the clicks
+
         # make sure the UI keeps rendering it the click was outside its region but inside the name textbox's
         if self.name_textbox.active: 
             self.enabled = True
@@ -552,15 +571,10 @@ class PlanetUI(UIElement):
                 self.click_start = time.time()
 
     def handle_event(self, event) -> None:
-        if self.name_textbox.handle_event(event):
-            self.body.name = self.name_textbox.content
-            print(self.body.name)
+        self.name_textbox.handle_event(event)
+        self.angle_textbox.handle_event(event)
         self.mass_textbox.handle_event(event)
         self.vel_textbox.handle_event(event)
-        '''
-        if self.name_textbox.active and event.type == pygame.KEYDOWN: # a letter has been typed in the name field
-            self.body.name = self.name_textbox.content
-        '''
 
     def on_mouse_motion(self, mouse_pos) -> None:
         if self.dragging:
@@ -579,14 +593,14 @@ class PlanetUI(UIElement):
             if self.vangle_setter.on_mouse_motion(mouse_pos):
                 self.body.set_vel_angle(self.vangle_setter.angle)
 
-    def on_click_release(self, mouse_pos, *args) -> None:
+    def on_click_release(self, mouse_pos, mouse_vel) -> None:
         self.orbit_tickbox.on_click_release(mouse_pos)
         if self.dragging:
             self.dragging = False
             # looks dumb but this way I don't have to import numpy just for this one line
             if time.time() - self.click_start > self.MIN_CLICK_THROW_TIME:
-                if self.MIN_THROW_VEL < (args[0][0]**2+args[0][1]**2)**(0.5) < self.MAX_THROW_VEL: 
-                    self.body.set_vel(args[0]) # args[1] is the displacement of the mouse from the last frame
+                if self.MIN_THROW_VEL < (mouse_vel[0]**2+mouse_vel[1]**2)**(0.5) < self.MAX_THROW_VEL: 
+                    self.body.set_vel(mouse_vel) # args[1] is the displacement of the mouse from the last frame
 
     def log_body(self, body: Body, mouse_pos=None) -> None:
         mouse_pos = mouse_pos if mouse_pos is not None else pygame.mouse.get_pos()
@@ -605,6 +619,8 @@ class PlanetUI(UIElement):
         self.name_textbox.set_text(self.body.name)
         self.mass_textbox.set_text(self.body.get_mass_str()[:-3]) # the [:-3] part is to remove the "kg" text
         self.vel_textbox.set_text(self.body.get_vel_str()[:-7]) # the [:-7] part is to remove the " km/day" text
+        self.vangle_setter.set_angle(get_angle(body.vel))
+        self.angle_textbox.set_text(body.get_angle_str())
         self.orbit_tickbox.set_ticked(False)
         self.body_path = []
 
@@ -615,9 +631,10 @@ class PlanetUI(UIElement):
             self.body_path.append((int(self.body.pos[0]), int(self.body.pos[1])))
 
     def render(self, surf: pygame.Surface) -> None:
-        super().render(surf)
         if self.enabled:
             self.update_texts()
+            self.body.render_velocity(surf)
+            super().render(surf) # make sure the background image is rendered after the velocity vector
 
             if self.orbit_tickbox.ticked:
                 for pos in self.body_path:
@@ -625,12 +642,13 @@ class PlanetUI(UIElement):
 
             self.mass_bar.render(surf)
             self.radius_bar.render(surf)
-            surf.blit(self.vel_text, (self.pos[0]+int(117*self.ratio[0]), self.pos[1]+int(115*self.ratio[1]))) # velocity text
+            surf.blit(self.vel_text, (self.pos[0]+int(117*self.ratio[0]), self.pos[1]+int(135*self.ratio[1]))) # velocity text
             surf.blit(self.mass_text, (self.pos[0]+int(100*self.ratio[0]), self.pos[1]+int(17*self.ratio[1])))
+            surf.blit(self.angle_text, (self.pos[0]+int(125*self.ratio[0]), self.pos[1]+int(160*self.ratio[1])))
 
-            self.body.render_velocity(surf)
             self.name_textbox.render(surf)
             self.orbit_tickbox.render(surf)    
             self.mass_textbox.render(surf)
             self.vel_textbox.render(surf)
             self.vangle_setter.render(surf)
+            self.angle_textbox.render(surf)

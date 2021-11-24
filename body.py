@@ -95,7 +95,7 @@ class Body:
 
     def set_vel_angle(self, angle: float) -> None:
         '''
-            Sets the angle of the velocity to the value of angle
+            Sets the angle of the velocity to the value of angle (which should be in radians)
         '''
         self.vel = np.array([np.cos(angle), -np.sin(angle)])*np.linalg.norm(self.vel)
 
@@ -111,6 +111,13 @@ class Body:
             notation in kilograms
         '''
         return ("%.3g" % self.get_mass_kg()).replace("e", "*10^").replace("+","") + " kg"
+
+    def get_angle_str(self) -> str:
+        '''
+            Returns a string with the number of degrees representing the rotation
+            of the velocity vector of the body
+        '''
+        return str(round(aconvert(get_angle(self.vel))))
 
     def get_vel_str(self) -> str:
         '''
