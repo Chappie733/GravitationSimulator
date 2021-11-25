@@ -191,8 +191,13 @@ class ProgressBar(UIElement):
 
 class TextBox(UIElement):
     DEFAULT_TEXTURE = load_texture('textbox.png')
+    # characters that can't be typed in
+    FORBIDDEN_CHARS = (8,pygame.K_LSHIFT,pygame.K_RSHIFT,pygame.K_ESCAPE, pygame.K_RETURN)
+    # characters that can be typed in numeric mode even if they aren't numbers
+    NUMERICAL_EXCEPTIONS = ('-','.','^','*','/','+') 
 
-    def __init__(self, pos, size, max_len=9, texture=None, parent=None, enable_on_click=False, letter_width=0.5) -> None:
+    def __init__(self, pos, size, max_len=9, texture=None, parent=None, enable_on_click=False, letter_width=0.5,
+                    numeric=False) -> None:
         '''
         pos -> (x,y), the position of the widget\n
         size -> (w,h) the size of the textbox\n
@@ -200,7 +205,8 @@ class TextBox(UIElement):
         texture -> the background texture of the bar\n
         parent -> the parent widget of the bar\n
         enable_on_click -> whether the textbox is only enabled (and rendered) after it's been clicked on.\\
-        letter_width -> a number determining the size of each letter (it has to be between 0 and 1)
+        letter_width -> a number determining the size of each letter (it has to be between 0 and 1)\n
+        numeric -> whether the textbox only allows numeric values (digits 0.9 including - and .)
         '''
         super().__init__(pos, size, texture=texture if texture is not None else self.DEFAULT_TEXTURE, parent=parent)
         self.content = ""
@@ -210,12 +216,25 @@ class TextBox(UIElement):
         self.letter_width = letter_width
         self.active = False # whether the user is writing on the textbox
         self.enable_on_click = enable_on_click
-        self.enabled = True
+        self.numeric = numeric
+        self.enabled = not enable_on_click
 
     def set_text(self, text) -> None:
         self.content = text
         text_size = (int(self.char_size[0]*len(self.content)), int(self.char_size[1]))
         self.text = pygame.transform.scale(self.font.render(self.content, False, (255,255,255)), text_size) # the text has to be re-rendered
+
+    def is_valid(self, char: int) -> bool:
+        '''
+            Returns whether the character (as its event.key representation) can be typed into the textbox
+        '''
+        if char in self.FORBIDDEN_CHARS:
+            return False
+        if self.numeric:
+            if ord('0') <= char <= ord('9') or chr(char) in self.NUMERICAL_EXCEPTIONS:
+                return True
+            return False
+        return True
 
     def on_click(self, mouse_pos):
         '''
@@ -227,7 +246,7 @@ class TextBox(UIElement):
             self.enabled = self.active
         return was_active != self.active
 
-    def handle_event(self, event) -> None:
+    def handle_event(self, event) -> bool:
         '''
             Returns whether a new character was added to the content of the textbox
         '''
@@ -237,7 +256,10 @@ class TextBox(UIElement):
             if event.key == 8 and len(self.content) > 0: # delete key has been pressed
                 self.set_text(self.content[:-1])
                 return True
-            elif len(self.content) < self.max_len and event.key not in (8,pygame.K_LSHIFT,pygame.K_RSHIFT,pygame.K_ESCAPE):
+            elif len(self.content) < self.max_len:
+                # if the textbox is numeric and something that isn't a number has been typed in
+                if not self.is_valid(event.key):
+                    return False
                 keys = pygame.key.get_pressed()
                 addition = chr(event.key)
                 if keys[pygame.K_RSHIFT] or keys[pygame.K_LSHIFT]:
@@ -393,6 +415,43 @@ class AngleSelector(UIElement):
         if self.enabled:
             surf.blit(self.arrow_texture, self.arrow_rect)
 
+class ModifiableText(UIElement):
+
+    # dims is the size of the screen, it's so the textbox can be moved up a little 
+    # so its  text matches with the one rendered when the textbox is disabled
+    def __init__(self, pos, size, max_len=9, texture=None, parent=None, letter_width=0.5, numeric=False, dims=(800.0,600.0)) -> None:
+        super().__init__(pos, size, texture=None, parent=parent)
+        self.textbox = TextBox((pos[0]-int(5*dims[0]/800.0), pos[1]-int(10*dims[1]/600.0)), 
+                        size, max_len, texture, parent, True, letter_width, numeric)
+        self.text = ""
+        self._update_text()
+        self.enabled = True
+
+    def set_text(self, text: str, update_textbox=False) -> None:
+        self.text = text
+        self._update_text()
+        if update_textbox:
+            self.textbox.set_text(text)
+
+    def _update_text(self) -> None:
+        self.text_surf = super().font.render(self.text, False, (255,255,255))
+    
+    def on_click(self, mouse_pos):
+        if self.textbox.on_click(mouse_pos):
+            # if the textbox was disabled 
+            if not self.textbox.enabled and len(self.textbox.content) != 0:
+                self.text = self.textbox.content
+                self._update_text()
+            else: # the textbox was enabled
+                self.textbox.set_text(self.text)
+    
+    def handle_event(self, event) -> None:
+        self.textbox.handle_event(event)
+
+    def render(self, surf: pygame.Surface) -> None:
+        surf.blit(self.text_surf, self.pos)
+        self.textbox.render(surf)
+
 class TimeUI(UIElement):
     MAX_TIME_RATE = 2
     MIN_TIME_RATE = 0.25
@@ -504,7 +563,7 @@ class PlanetUI(UIElement):
                                     enable_on_click=True, letter_width=0.9)
         self.angle_textbox = TextBox(adapt_ratio((125,155), self.ratio),
                                      adapt_ratio((60,25), self.ratio),
-                                     max_len=3, parent=self, enable_on_click=True)
+                                     max_len=3, parent=self, enable_on_click=True, numeric=True)
         self.orbit_tickbox = Tickbox(adapt_ratio((175,110), self.ratio), 
                                     adapt_ratio((18,18), self.ratio), parent=self)
         self.vangle_setter = AngleSelector((30,150), (25,25), parent=self) # velocity angle setter
@@ -550,9 +609,11 @@ class PlanetUI(UIElement):
             self.body.set_mass_str(self.mass_textbox.content)
             self.mass_text = super().font.render(self.body.get_mass_str(), False, (255,255,255)) # UPDATE THE MASS' TEXT
         if self.angle_textbox.on_click(mouse_pos):
-            # if the textbox was disabled
-            if not self.angle_textbox.enabled:
-                rad_angle = aconvert(int(self.angle_textbox.content)%360, rad_to_deg=False)
+            # if the textbox was disabled and the textbox isn't empty
+            if not self.angle_textbox.enabled and len(self.angle_textbox.content) != 0:
+                # first convert to float so one can use round() to only get the integer part
+                parsed_deg_angle = round(float(self.angle_textbox.content))%360
+                rad_angle = aconvert(parsed_deg_angle, rad_to_deg=False)
                 self.body.set_vel_angle(rad_angle)
                 self.angle_text = super().font.render(self.body.get_angle_str(), False, (255,255,255))
                 self.vangle_setter.set_angle(rad_angle)
