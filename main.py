@@ -2,10 +2,10 @@ import pygame
 from gui import *
 from space import *
 
-W,H = 800, 600
 BACKGROUND_COLOR = (0,0,0)
 
 def main():
+    W,H = 800, 600
     UIElement.init_font(W=W)
 
     win = pygame.display.set_mode((W,H))
@@ -24,6 +24,7 @@ def main():
     gui = UI()
     gui.add_widget(PlanetUI(W,H))
     gui.add_widget(TimeUI(W,H))
+    gui.add_widget(OptionsMenu(W,H))
 
     while running:
         clock.tick(fps)
@@ -43,6 +44,12 @@ def main():
 
             elif event.type == TIME_UPDATE_EVENT:
                 space.tick_time = gui.get_by_type(TimeUI).get_time_rate()
+            elif event.type == WINDOW_RESIZE_EVENT:
+                new_win_size = event.new_size
+                gui.on_window_resize(W,H, new_win_size[0], new_win_size[1])
+                W,H = new_win_size
+                win = pygame.display.set_mode(new_win_size) # reinitialize the window
+                surf = pygame.Surface(new_win_size) # reinitialize the surface
 
             gui.handle_event(event, mouse_pos=mouse_pos, mouse_vel=mouse_vel)
 
@@ -52,8 +59,8 @@ def main():
             gui.update()
 
         space.render(surf)
-        space.render_grav_field(surf, margin=75, W=W, H=H)
-        
+        space.render_grav_field(surf, margin=int(75*W/800.0), W=W, H=H)
+
         gui.render(surf)
         win.blit(surf, (0,0))
         pygame.display.flip()

@@ -2,7 +2,6 @@ import numpy as np
 import pygame
 from body import *
 
-
 class Space:
 
     def __init__(self, bodies=None, tick_time=1):
