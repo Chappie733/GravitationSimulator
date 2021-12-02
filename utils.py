@@ -122,3 +122,16 @@ def rotate_texture(texture: pygame.Surface, angle: float, topleft_pos=(0,0)):
     rotated = pygame.transform.rotate(texture, angle*180/np.pi-90) 
     new_rect = rotated.get_rect(center=texture.get_rect(topleft=topleft_pos).center)
     return rotated, new_rect
+
+def get_available_resolutions(ratio=4/3):
+    '''
+        Returns all the available fullscreen resolutions with the given ratio
+    '''
+    if ratio is None:
+        return pygame.display.list_modes()
+
+    resolutions = []
+    for res in pygame.display.list_modes():
+        if res[0]/res[1] == ratio:
+            resolutions.append(res)
+    return resolutions

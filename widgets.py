@@ -1,3 +1,4 @@
+from typing import Text
 import pygame
 import time
 from utils import adapt_ratio, load_texture, clamp, load_spritesheet, rotate_texture, get_angle
@@ -66,14 +67,14 @@ class UIElement:
 
     # make a list of children GUIelements, so that their position and whether they
     # are enabled or not depends on the parameters of their parent 
-    def __init__(self, pos, size, texture=None, parent=None) -> None:
+    def __init__(self, pos, size, texture=None, parent=None, enabled=True) -> None:
         '''
             pos -> position of the top-left corner of the gui element
             size -> width and height of the gui element (w,h)
             texture -> pygame image of the texture to be used
         '''
         self.pos = pos
-        self.enabled = False
+        self.enabled = enabled
         self.size = size
         self.parent = parent
         self.texture = texture
@@ -142,12 +143,12 @@ class UIElement:
         return widgets
 
     @staticmethod
-    def init_font(W=800) -> None:
+    def init_font(W=800, H=600.0) -> None:
         '''
             W -> the width of the screen, the font is set to assume the screen ratio is 4:3
         '''
    #     font_location = pygame.font.match_font('arial')
-        UIElement.font = pygame.font.SysFont(None, int(23*W/800.0))
+        UIElement.font = pygame.font.SysFont(None, int(23*(W+H)/1400.0))
 
 
 class ProgressBar(UIElement):
@@ -170,7 +171,7 @@ class ProgressBar(UIElement):
             fill_y_offset -> the offset between the rendering position of the texture and that of the progress bar\n
             fill_y_size -> the size of the section filled to represent the progress
         '''
-        super().__init__(pos, size, texture=texture, parent=parent)
+        super().__init__(pos, size, texture=texture, parent=parent, enabled=True)
         self.min_val = min_val
         self.max_val = max_val
         self.val = val
@@ -185,8 +186,10 @@ class ProgressBar(UIElement):
         '''
             Returns true if the value of the progress bar has been changed
         '''
-        super().on_click(mouse_pos)
-        if self.enabled and self.interactable:
+        if not self.enabled:
+            return
+
+        if self.is_on_element(mouse_pos) and self.interactable:
             rel_mouse_x = mouse_pos[0] if self.parent is None else mouse_pos[0]-self.parent.pos[0]
             self.val = self.min_val+(self.max_val-self.min_val)*(rel_mouse_x-self.pos[0])/self.size[0]
             if self.discrete:
@@ -199,8 +202,11 @@ class ProgressBar(UIElement):
         '''
             Returns whether the value of the progress bar was changed (which implies the mouse is clicked)
         '''
+        if not self.enabled:
+            return
+
         if self.continuous and pygame.mouse.get_pressed()[0]:
-            return self.on_click(mouse_pos)
+            return self.on_click(mouse_pos) 
     
     def on_window_resize(self, wold, hold, wnew, hnew) -> None:
         super().on_window_resize(wold, hold, wnew, hnew, resize_widgets=False)
@@ -208,6 +214,9 @@ class ProgressBar(UIElement):
         self.fill_y_offset = int(self.fill_y_offset*hnew/hold)
 
     def render(self, surf: pygame.Surface) -> None:
+        if not self.enabled:
+            return
+
         prog_w = int((self.val-self.min_val)/(self.max_val-self.min_val)*self.size[0]) # width of the progress color (in pixels)
         src = (0,0) if self.parent is None else self.parent.pos
         if self.texture is None:
@@ -237,7 +246,7 @@ class TextBox(UIElement):
         letter_width -> a number determining the size of each letter (it has to be between 0 and 1)\n
         numeric -> whether the textbox only allows numeric values (digits 0.9 including - and .)
         '''
-        super().__init__(pos, size, texture=texture if texture is not None else self.DEFAULT_TEXTURE, parent=parent)
+        super().__init__(pos, size, texture=texture if texture is not None else self.DEFAULT_TEXTURE, parent=parent, enabled=not enable_on_click)
         self.content = ""
         self.text = self.font.render("", False, (255,255,255))
         self.max_len = max_len
@@ -246,7 +255,6 @@ class TextBox(UIElement):
         self.active = False # whether the user is writing on the textbox
         self.enable_on_click = enable_on_click
         self.numeric = numeric
-        self.enabled = not enable_on_click
 
     def set_text(self, text) -> None:
         self.content = text
@@ -269,6 +277,9 @@ class TextBox(UIElement):
         '''
             Returns true if the textbox was selected/deselected
         '''
+        if not self.enabled:
+            return
+
         was_active = self.active
         self.active = super().is_on_element(mouse_pos)
         if self.enable_on_click:
@@ -304,29 +315,32 @@ class TextBox(UIElement):
         self.set_text(self.content) # re-render the text with the right size
 
     def render(self, surf: pygame.Surface) -> None:
-        if self.enabled:
-            pos = self.pos if self.parent is None else (self.parent.pos[0]+self.pos[0], self.parent.pos[1]+self.pos[1])
-            surf.blit(self.texture, (pos[0], pos[1]))
-            surf.blit(self.text, (pos[0]+int(self.size[0]/18), pos[1] + int(self.size[1]*1/4)))
-            if time.time() % 1 > 0.5 and self.active:
-                cursor_x_offset = int(self.size[0]*(len(self.content)+1)/self.max_len*self.letter_width)
-                pygame.draw.rect(surf, (255,255,255), (pos[0]+cursor_x_offset, pos[1] + int(self.size[1]*1/4), self.char_size[0], self.char_size[1]))
+        if not self.enabled:
+            return
+        pos = self.pos if self.parent is None else (self.parent.pos[0]+self.pos[0], self.parent.pos[1]+self.pos[1])
+        surf.blit(self.texture, (pos[0], pos[1]))
+        surf.blit(self.text, (pos[0]+int(self.size[0]/18), pos[1] + int(self.size[1]*1/4)))
+        if time.time() % 1 > 0.5 and self.active:
+            cursor_x_offset = int(self.size[0]*(len(self.content)+1)/self.max_len*self.letter_width)
+            pygame.draw.rect(surf, (255,255,255), (pos[0]+cursor_x_offset, pos[1] + int(self.size[1]*1/4), self.char_size[0], self.char_size[1]))
 
 class Button(UIElement):
+    BUTTON_MASK_TEXTURE = load_spritesheet("button_mask.png", tile_w=1, tile_h=1)
 
     # textures is a list of textures that are drawn corresponding to the state
     # of the button, 0 -> normal, 1 -> hovered, 2 -> clicked
     def __init__(self, pos, size, textures=None, parent=None) -> None:
         '''
-            pos -> position of the top-left corner of the gui element
-            size -> width and height of the gui element (w,h)
+            pos -> position of the top-left corner of the gui element\n
+            size -> width and height of the gui element (w,h)\n
             textures -> a list of three textures, the first is how the button looks by default,
             the second is the button when the user hovers over it with the mouse,
-            and the third is the look of the button when it's actively being clicked
+            and the third is the look of the button when it's actively being clicked\n
+            parent -> the parent widget of the button\n
+            text -> the text rendered on the button (if text is left as None no text is rendered)
         '''
-        super().__init__(pos, size, parent=parent)
+        super().__init__(pos, size, parent=parent, enabled=True)
         self.state = 0 # default state
-        self.enabled = True
         self.textures = []
         # make sure the game doesn't crash if a button is created without any custom
         if textures is not None:
@@ -337,11 +351,13 @@ class Button(UIElement):
         else:
             self.textures = load_spritesheet("default_button.png", tile_w=64, tile_h=32, new_size=size)
 
-
     def on_click(self, mouse_pos) -> bool:
         '''
             Returns whether the button has been clicked
         '''
+        if not self.enabled:
+            return
+
         if self.is_on_element(mouse_pos):
             self.state = 2 # switch to the clicked texture
 
@@ -349,6 +365,9 @@ class Button(UIElement):
         '''
             Returns whether the button was pressed before the click was released
         '''
+        if not self.enabled:
+            return
+
         # if the button was clicked and the mouse is still on it
         if self.state == 2 and super().is_on_element(mouse_pos):
             self.state = 1 # return to the hovered texture
@@ -370,14 +389,16 @@ class Button(UIElement):
         return self.state == 2
     
     def render(self, surf: pygame.Surface) -> None:
-        if self.enabled:
-            src = (0,0) if self.parent is None else self.parent.pos
-            surf.blit(self.textures[self.state], (self.pos[0]+src[0], self.pos[1]+src[1]))
+        if not self.enabled:
+            return
+
+        src = (0,0) if self.parent is None else self.parent.pos
+        surf.blit(self.textures[self.state], (self.pos[0]+src[0], self.pos[1]+src[1]))
 
 class Tickbox(UIElement):
 
     def __init__(self, pos, size, textures=None, parent=None) -> None:
-        super().__init__(pos, size, parent=parent)
+        super().__init__(pos, size, parent=parent, enabled=True)
         self.ticked = False
         self.texture_state = 0 # texture state (0 -> unticked, 1 -> clicked (but click not yet released), 2 -> ticked)
         self.textures = []
@@ -411,6 +432,8 @@ class Tickbox(UIElement):
             self.textures[tex_idx] = pygame.transform.scale(self.textures[tex_idx], self.size)
 
     def render(self, surf: pygame.Surface) -> None:
+        if not self.enabled:
+            return
         src = (0,0) if self.parent is None else self.parent.pos
         surf.blit(self.textures[self.texture_state], (self.pos[0]+src[0], self.pos[1]+src[1]))
 
@@ -423,7 +446,7 @@ class AngleSelector(UIElement):
     ARROW_TEXTURE = load_texture("angle_arrow.png")
 
     def __init__(self, pos, size, texture=None, parent=None, arrow_scale=0.6, continuous=True) -> None:
-        super().__init__(pos, size, texture=texture if texture is not None else self.DEFAULT_TEXTURE, parent=parent)
+        super().__init__(pos, size, texture=texture if texture is not None else self.DEFAULT_TEXTURE, parent=parent, enabled=True)
         self.angle = 0 # in radians
         # size of the arrow scaled with the size of the widget
         self.arrow_scale = arrow_scale
@@ -432,7 +455,6 @@ class AngleSelector(UIElement):
         self.center_pos = self.get_abs_pos((self.pos[0]+self.size[0]//2, self.pos[1]+self.size[1]//2))
         # the original rect of the image has its center in the exact middle of the widget
         self.arrow_rect = self.arrow_texture.get_rect(center=self.center_pos) 
-        self.enabled = True
         self.continuous = continuous
 
     def set_angle(self, angle: float):
@@ -474,12 +496,11 @@ class ModifiableText(UIElement):
     # so its  text matches with the one rendered when the textbox is disabled
     def __init__(self, pos, size, max_len=9, texture=None, parent=None, letter_width=0.5, numeric=False, dims=(800.0,600.0),
                 conversion_func=None) -> None:
-        super().__init__(pos, size, texture=None, parent=parent)
+        super().__init__(pos, size, texture=None, parent=parent, enabled=True)
         self.textbox = TextBox((pos[0]-int(5*dims[0]/800.0), pos[1]-int(5*dims[1]/600.0)), 
                         size, max_len, texture, parent, True, letter_width, numeric)
         self.text = ""
         self._update_text()
-        self.enabled = True
         # the function that converts (text from textbox) -> base text if the second parameter is False
         # and (base text -> Textbox text) if the second parameter is True
         self.conversion_func = conversion_func if conversion_func is not None else lambda x,y: x
@@ -514,3 +535,143 @@ class ModifiableText(UIElement):
         if not self.textbox.enabled:
             surf.blit(self.text_surf, self.get_abs_pos())
         self.textbox.render(surf)
+
+class TextButton(UIElement):
+
+    def __init__(self, pos, size, text, texture=None, parent=None) -> None:
+        '''
+            A button, but with a text rendered on top of it
+        '''
+        super().__init__(pos, size, texture=None, parent=parent, enabled=True)
+        self.textbox = TextBox(self.pos, self.size, max_len=len(text), texture=texture, 
+                                parent=self.parent, letter_width=0.9)
+        self.textbox.set_text(text)
+        self.button = Button(self.pos, self.size, textures=Button.BUTTON_MASK_TEXTURE, parent=self.parent)
+
+    def on_click(self, mouse_pos):
+        return self.button.on_click(mouse_pos)
+    
+    def on_mouse_motion(self, mouse_pos) -> None:
+        return self.button.on_mouse_motion(mouse_pos)
+    
+    def on_click_release(self, mouse_pos, *args):
+        return self.button.on_click_release(mouse_pos)
+
+    def render(self, surf: pygame.Surface) -> None:
+        if self.enabled:
+            self.textbox.render(surf)
+            self.button.render(surf)
+
+class DropDownList(UIElement):
+    DEFAULT_ENTRY_TEXTURE = load_texture("dropdown_entry.png")
+    
+    def __init__(self, pos, size, entries=[], parent=None, dims=(800.0,600.0), initial_element=None) -> None:
+        '''
+            dims -> the size of the window (or of the surface the widget is being rendered on)
+        '''
+        super().__init__(pos, size, None, parent=parent)
+        max_text_len = max([len(entry) for entry in entries]) # length of longest text that will be rendered
+        self.main_textbox = TextBox(self.pos, self.size, max_text_len+2, letter_width=0.8, parent=parent) # the +2 is so the text doesn't override the button
+        button_size = adapt_ratio((30,16), (dims[0]/800.0, dims[1]/600.0))
+        # margin of the dropdown button from the left-top most corner
+        margin_offset = adapt_ratio((9, 7), (self.size[0]/196, self.size[1]/25)) # absolute margin of the 
+        self.dropdown_button = Button((self.pos[0]+self.size[0]-button_size[0]-margin_offset[0], self.pos[1]+margin_offset[1]),
+                                        button_size,
+                                        textures=load_spritesheet("dropdown_button.png", tile_w=30, tile_h=16),
+                                        parent=parent)
+        self.opened = False # whether the list is open
+        self.set_entries(entries, initial_element)
+
+    def set_selected(self, selected_entry_idx):
+        self.selected_entry_idx = selected_entry_idx
+        self.main_textbox.set_text(self.entries[selected_entry_idx])
+
+    def set_entries(self, entries=[], initial_element=None) -> None:
+        self.entries_buttons = []
+        self.entries_textboxes = []
+        self.entries = entries
+        max_text_len = max([len(entry) for entry in entries])
+        if initial_element is None or initial_element not in self.entries:
+            self.set_selected(0)
+        else:
+            self.set_selected(self.entries.index(initial_element))
+
+        # TODO: initialize for each entry its textbox and button, I guess each entry can have as a width
+        # 3/4 of the width of this widget (or maybe 4/5), and as a height the same as this widget's
+        for entry_idx in range(len(entries)):
+            choice_box_size = (int(self.size[0]*4/5), self.size[1])
+            choice_box_pos = (self.pos[0]+self.size[0]//10, self.pos[1]+self.size[1]*(entry_idx+1))
+            entry_textbox = TextBox(choice_box_pos, choice_box_size,
+                                  max_len = max_text_len, letter_width=0.9, parent=self.parent)
+            entry_textbox.set_text(entries[entry_idx])
+            entry_button = Button(choice_box_pos, choice_box_size, textures=Button.BUTTON_MASK_TEXTURE, parent=self.parent)
+            entry_button.enabled = self.opened
+            entry_textbox.enabled = self.opened
+            self.entries_textboxes.append(entry_textbox)
+            self.entries_buttons.append(entry_button)
+
+    def set_opened(self, opened) -> None:
+        self.opened = opened
+        for i in range(len(self.entries)):
+            self.entries_textboxes[i].enabled = opened
+            self.entries_buttons[i].enabled = opened
+
+    def is_on_element(self, mouse_pos) -> bool:
+        if super().is_on_element(mouse_pos):
+            return True
+        if self.opened:
+            for button in self.entries_textboxes:
+                if button.is_on_element(mouse_pos):
+                    return True
+        return False
+
+    def on_click(self, mouse_pos):
+        '''
+            Returns whether the click was on the widget
+        '''
+        if not self.is_on_element(mouse_pos):
+            self.set_opened(False)
+            return False
+
+        self.dropdown_button.on_click(mouse_pos)
+        for entry_button in self.entries_buttons:
+            entry_button.on_click(mouse_pos)
+        return True
+
+    def on_mouse_motion(self, mouse_pos) -> None:
+        self.dropdown_button.on_mouse_motion(mouse_pos)
+        for entry_button in self.entries_buttons:
+            entry_button.on_mouse_motion(mouse_pos)
+
+    def on_click_release(self, mouse_pos, *args):
+        '''
+            Returns whether an option was chosen
+        '''
+        if self.dropdown_button.on_click_release(mouse_pos):
+            self.set_opened(not self.opened)
+        for entry_idx in range(len(self.entries)):
+            if self.entries_buttons[entry_idx].on_click_release(mouse_pos):
+                self.set_selected(entry_idx)
+                self.set_opened(False)
+                return True
+        return False
+
+    def on_window_resize(self, wold, hold, wnew, hnew) -> None:
+        super().on_window_resize(wold, hold, wnew, hnew, resize_widgets=True)
+        for entry_idx in range(len(self.entries)):
+            self.entries_buttons[entry_idx].on_window_resize(wold, hold, wnew, hnew)
+            self.entries_textboxes[entry_idx].on_window_resize(wold, hold, wnew, hnew)
+
+    def render(self, surf: pygame.Surface) -> None:
+        if not self.enabled:
+            return
+
+        self.main_textbox.render(surf)
+        self.dropdown_button.render(surf)
+
+        for entry in range(len(self.entries)):
+            self.entries_textboxes[entry].render(surf)
+            self.entries_buttons[entry].render(surf)
+
+    def get_selected(self) -> str:
+        return self.entries[self.selected_entry_idx]

@@ -1,6 +1,7 @@
 import pygame
 from gui import *
 from space import *
+from widgets import TextBox
 
 BACKGROUND_COLOR = (0,0,0)
 
@@ -9,7 +10,7 @@ def main():
     UIElement.init_font(W=W)
 
     win = pygame.display.set_mode((W,H))
-    surf = pygame.Surface((W,H))
+    surf = pygame.Surface((W,H), pygame.SRCALPHA)
     fps = 30
     running = True
     clock = pygame.time.Clock()
@@ -48,7 +49,8 @@ def main():
                 new_win_size = event.new_size
                 gui.on_window_resize(W,H, new_win_size[0], new_win_size[1])
                 W,H = new_win_size
-                win = pygame.display.set_mode(new_win_size) # reinitialize the window
+                UIElement.init_font(W)
+                win = pygame.display.set_mode(new_win_size, pygame.FULLSCREEN if event.fullscreen else 0) # reinitialize the window
                 surf = pygame.Surface(new_win_size) # reinitialize the surface
 
             gui.handle_event(event, mouse_pos=mouse_pos, mouse_vel=mouse_vel)
@@ -59,7 +61,7 @@ def main():
             gui.update()
 
         space.render(surf)
-        space.render_grav_field(surf, margin=int(75*W/800.0), W=W, H=H)
+        space.render_grav_field(surf, margin=int(75*(W+H)/1400.0), W=W, H=H)
 
         gui.render(surf)
         win.blit(surf, (0,0))

@@ -1,7 +1,7 @@
 from animations import Animation
 from body import Body
 from widgets import *
-from utils import load_spritesheet, adapt_ratio, get_angle, aconvert
+from utils import load_spritesheet, adapt_ratio, get_angle, aconvert, get_available_resolutions
 
 TIME_UPDATE_EVENT = pygame.USEREVENT+1
 WINDOW_RESIZE_EVENT = pygame.USEREVENT+2
@@ -22,10 +22,9 @@ class TimeUI(UIElement):
     TIME_STEP = 0.25
 
     def __init__(self, w, h) -> None:
-        super().__init__((0,0), (int(196*w/800),int(100*h/600)), "time_gui_background.png")
+        super().__init__((0,0), (int(196*w/800),int(100*h/600)), "time_gui_background.png", enabled=True)
         self.days = 0
         self.ratio = (w/800.0, h/600.0)
-        self.enabled = True
         self.pause_box = Tickbox(adapt_ratio((82,60), self.ratio),
                                     adapt_ratio((24,24), self.ratio),
                                     textures=load_spritesheet("time_toggle.png"),
@@ -79,6 +78,9 @@ class TimeUI(UIElement):
         self.days += self.get_time_rate()
 
     def render(self, surf: pygame.Surface) -> None:
+        if not self.enabled:
+            return
+
         super().render(surf)
         self._update_text()
         surf.blit(self.time_text, adapt_ratio((5,10), self.ratio)) 
@@ -108,7 +110,7 @@ class PlanetUI(UIElement):
     MAX_BODY_PATH_LEN = 500 # the maximum amount of positions rendered when drawing the path of a body
 
     def __init__(self, w, h) -> None:
-        super().__init__((int(530*w/800),int(400*h/600)), (int(256*w/800),int(190*h/600)), "gui_background.png")
+        super().__init__((int(530*w/800),int(400*h/600)), (int(256*w/800),int(190*h/600)), "gui_background.png", enabled=False)
         # the values were adjusted for this resolution, this way they can be scaled to any given resolution
         self.ratio = (w/800.0, h/600.0)
         self.mass_bar = ProgressBar(adapt_ratio((30, 37), self.ratio), 
@@ -240,16 +242,6 @@ class PlanetUI(UIElement):
 
     def on_window_resize(self, wold, hold, wnew, hnew) -> None:
         super().on_window_resize(wold, hold, wnew, hnew, resize_widgets=True)
-        '''
-        self.mass_text.on_window_resize(wold,hold,wnew,hnew)
-        self.mass_text.on_window_resize(wold,hold,wnew,hnew)
-        self.radius_bar.on_window_resize(wold,hold,wnew,hnew)
-        self.name_textbox.on_window_resize(wold,hold,wnew,hnew)
-        self.vel_text.on_window_resize(wold,hold,wnew,hnew)
-        self.angle_text.on_window_resize(wold,hold,wnew,hnew)
-        self.orbit_tickbox.on_window_resize(wold,hold,wnew,hnew)
-        self.vangle_setter.on_window_resize(wold,hold,wnew,hnew)
-        '''
         self.ratio = (wnew/800.0, hnew/600.0)
 
     def log_body(self, body: Body, mouse_pos=None) -> None:
@@ -275,47 +267,59 @@ class PlanetUI(UIElement):
         self.body_path = []
 
     def update(self) -> None:
+        if not self.enabled:
+            return
+
         if self.orbit_tickbox.ticked:
             if len(self.body_path) > self.MAX_BODY_PATH_LEN:
                 self.body_path = self.body_path[1:len(self.body_path)]
             self.body_path.append((int(self.body.pos[0]), int(self.body.pos[1])))
 
     def render(self, surf: pygame.Surface) -> None:
-        if self.enabled:
-            self.update_texts()
-            self.body.render_velocity(surf)
+        if not self.enabled:
+            return
+            
+        self.update_texts()
+        self.body.render_velocity(surf)
 
-            # draw body path if "draw orbit" is ticked
-            if self.orbit_tickbox.ticked:
-                for pos in self.body_path:
-                    pygame.draw.circle(surf, (255,255,255), pos, int(self.body.radius*3/4))
+        # draw body path if "draw orbit" is ticked
+        if self.orbit_tickbox.ticked:
+            for pos in self.body_path:
+                pygame.draw.circle(surf, (255,255,255), pos, int(self.body.radius*3/4))
 
-            super().render(surf) # make sure the background image is rendered after the velocity vector
+        super().render(surf) # make sure the background image is rendered after the velocity vector
 
-            self.mass_bar.render(surf)
-            self.radius_bar.render(surf)
+        self.mass_bar.render(surf)
+        self.radius_bar.render(surf)
 
-            self.name_textbox.render(surf)
-            self.orbit_tickbox.render(surf)    
-            self.mass_text.render(surf)
-            self.vel_text.render(surf)
-            self.vangle_setter.render(surf)
-            self.angle_text.render(surf)
+        self.name_textbox.render(surf)
+        self.orbit_tickbox.render(surf)    
+        self.mass_text.render(surf)
+        self.vel_text.render(surf)
+        self.vangle_setter.render(surf)
+        self.angle_text.render(surf)
 
 class OptionsMenu(UIElement):
 
     def __init__(self, w, h) -> None:
-        super().__init__((w, 0), (int(185*w/800.0),h), texture='options_menu.png')
+        super().__init__((w, 0), (int(256*w/800.0),h), texture='options_menu.png')
         self.ratio = (w/800.0, h/600.0)
         # button to open or close the menu, due to its texture it merges with the rest of the menu itself
         self.toggle_button = Button(adapt_ratio((-64,0), self.ratio),
                                     adapt_ratio((64,64), self.ratio),
                                     textures=load_spritesheet('options_menu_button.png', tile_w=64, tile_h=64),
                                     parent=self)
-        self.enabled = True
         # Menu opening/closing animations
         self.init_animations(w)
         self.opened = False # whether the menu is opened or not
+        self.resolution_list = DropDownList(adapt_ratio((120,40), self.ratio), adapt_ratio((120,32),self.ratio),
+                                            [str(res).replace('(','').replace(')','').replace(', ','x') for res in get_available_resolutions()],
+                                            parent=self, dims=(w,h), initial_element=f"{w}x{h}")
+        self.fullscreen_tickbox = Tickbox(adapt_ratio((160,90), self.ratio), adapt_ratio((24,24), self.ratio),
+                                            parent=self)
+        self.brightness_bar = ProgressBar(adapt_ratio((120,40), self.ratio), adapt_ratio((120,32), self.ratio),
+                                        min_val=0, max_val=255, parent=self)
+        self.apply_button = TextButton(adapt_ratio((92, 205), self.ratio), adapt_ratio((80,24), self.ratio), "Apply", parent=self)
 
     def init_animations(self, w) -> None:
         '''
@@ -327,6 +331,13 @@ class OptionsMenu(UIElement):
 
     def on_click(self, mouse_pos):
         self.toggle_button.on_click(mouse_pos)
+        if not self.resolution_list.on_click(mouse_pos):
+            self.apply_button.on_click(mouse_pos)
+            self.fullscreen_tickbox.on_click(mouse_pos)
+
+    def on_settings_apply(self) -> None:
+        selected_win_size = [int(x) for x in self.resolution_list.get_selected().split("x")]
+        pygame.event.post(pygame.event.Event(WINDOW_RESIZE_EVENT, new_size=selected_win_size, fullscreen=self.fullscreen_tickbox.ticked))
 
     def on_click_release(self, mouse_pos, *args):
         if self.toggle_button.on_click_release(mouse_pos):
@@ -334,12 +345,20 @@ class OptionsMenu(UIElement):
             # opened = True -> the menu being closed -> animation at index 1 = int(True) = int(opened)
             self.slide_animations[int(self.opened)].start() # restart the animation
             self.opened = not self.opened # toggle the opening or closure of the menu
+        
+        if not self.resolution_list.on_click_release(mouse_pos):
+            if self.apply_button.on_click_release(mouse_pos):
+                self.on_settings_apply()
+            self.fullscreen_tickbox.on_click_release(mouse_pos)
 
     def on_mouse_motion(self, mouse_pos) -> None:
         self.toggle_button.on_mouse_motion(mouse_pos)
+        self.resolution_list.on_mouse_motion(mouse_pos)
+        self.brightness_bar.on_mouse_motion(mouse_pos)
+        self.apply_button.on_mouse_motion(mouse_pos)
 
     def on_window_resize(self, wold, hold, wnew, hnew) -> None:
-        super().on_window_resize(wold, hold, wnew, hnew, resize_widgets=False)
+        super().on_window_resize(wold, hold, wnew, hnew, resize_widgets=True)
         self.ratio = (wnew/800.0, hnew/600.0)
         self.init_animations(wnew)
 
@@ -354,5 +373,12 @@ class OptionsMenu(UIElement):
         if self.slide_animations[int(not self.opened)].running:
             self.pos = self.slide_animations[int(not self.opened)].get_pos(updating=True)
 
-        super().render(surf)
         self.toggle_button.render(surf)
+
+        # only render the widgets if the menu is open (or if it's closing)
+        if self.opened or self.slide_animations[int(not self.opened)].running:
+            super().render(surf)
+            self.apply_button.render(surf)
+            self.fullscreen_tickbox.render(surf)
+            self.brightness_bar.render(surf)
+            self.resolution_list.render(surf)
