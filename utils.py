@@ -1,9 +1,8 @@
-from operator import invert
 import pygame
 import numpy as np
 import os
 
-arrow_vertices = (np.array(((0, 100), (0, 200), (200, 200), (200, 300), (300, 150), (200, 0), (200, 100)))-150)*np.array([1.35,0.65])/5
+arrow_vertices = np.array(((-40.5, -6.5), (-40.5, 6.5), (13.5, 6.5), (13.5, 19.5), (40.5, 0), (13.5, -19.5), (13.5, -6.5)))
 
 import sys
 
@@ -13,6 +12,7 @@ elif __file__:
     path = os.path.dirname(__file__)
 
 res_path = os.path.join(path, 'res')
+saves_path = os.path.join(path, 'saves')
 
 def rotate(x: np.ndarray, angle: float) -> np.ndarray:
     '''
@@ -61,8 +61,12 @@ def load_texture(source: str, size=None) -> pygame.Surface:
 
 def clamp(num, minimum=0, maximum=1):
     '''
-        Restricts the value of num in the interval [minimum, maximum]
+        Restricts the value of num in the interval [minimum, maximum], if maximum is less
+        than minimum the value returned will just be that of minimum
     '''
+    if maximum <= minimum:
+        return minimum
+
     num = num if minimum <= num else minimum
     num = num if maximum >= num else maximum
     return num
@@ -72,6 +76,25 @@ def adapt_ratio(vals: tuple, ratio: tuple) -> tuple:
         If vals = (x,y) and ratio = (rx,ry) this returns (int(x*rx), int(y*rx))
     '''
     return (int(vals[0]*ratio[0]), int(vals[1]*ratio[1]))
+
+def parseNum(num: str) -> float:
+    ''' Parses a string to a number, regardless of the form it's written in, 
+        if the string isn't a number None is returned '''
+
+    # various forms: a*b^c, a.b, a
+    if len(num) == 0:
+        return 0
+    try:
+        if '^' in num: # assume an exponential form a*b^c
+            divided = num.split('^')
+            a,b,c = divided[0].split('*')+[divided[1]] # divided is now [a,b,c]
+            return float(a)*float(b)**float(c)
+        elif 'e' in num: # assume exponential form aeb (ex: 5.32e4)
+            a,b = num.split('e')
+            return float(a)*10**float(b)
+        return float(num)
+    except:
+        return None
 
 def get_angle(vector, invert_y=True):
     '''
@@ -88,6 +111,30 @@ def get_angle(vector, invert_y=True):
     if vector[1]*(1-2*int(invert_y)) < 0:
         return -angle
     return angle
+
+def get_average(vecs: list) -> tuple:
+    ''' Returns the average of the given vector along each axis  '''
+    return np.mean(vecs, axis=0)
+
+def get_mg_order(num: float) -> int:
+    ''' Returns the order of magnitude of the given number '''
+    return np.floor(np.log10(num)).astype(np.int32)+1
+
+def get_length(vec: tuple) -> float:
+    return np.linalg.norm(vec)
+
+def isnumeric(num: str, exponential=False) -> bool:
+    '''
+        Returns whether the given string represents a number, if the number can also be in exponential form
+        it's necessaryto set exponential=True
+    '''
+    if not exponential:
+        return num.replace('.','').replace('-','').replace('^','').isdigit()    
+    try:
+        float(num.replace('*10^', 'e')) # if the string is not a number it can't be parsed by float()
+    except ValueError:
+        return False
+    return True
 
 # "angle convert"
 def aconvert(angle: float, rad_to_deg=True) -> int:
@@ -106,6 +153,20 @@ def aconvert(angle: float, rad_to_deg=True) -> int:
     rad_angle += -2*np.pi if rad_angle > np.pi else 0
     return rad_angle
 
+def get_saves() -> list:
+    '''
+        Returns a list with the names of all the saved spaces in the respective folder, excluding the
+        automatically saved space
+    '''
+    saves = os.listdir(saves_path)
+    return saves
+
+def del_save(name: str) -> None:
+    '''
+        Deletes the saved space with the given name
+    '''
+    os.remove(os.path.join(saves_path, name))
+
 def rotate_texture(texture: pygame.Surface, angle: float, topleft_pos=(0,0)):
     '''
         Takes a texture returns its rotated version and its new position.\n
@@ -116,14 +177,13 @@ def rotate_texture(texture: pygame.Surface, angle: float, topleft_pos=(0,0)):
         Returns:\n
         \t- The rotated version of the image (as a pygame.Surface instance)\n
         \t- The new position of the texture (which is just the offset if pos was not passed)\n
-
     '''
     # for some reason pygame starts with an angle of 0 equal to a rotation of π/2
     rotated = pygame.transform.rotate(texture, angle*180/np.pi-90) 
     new_rect = rotated.get_rect(center=texture.get_rect(topleft=topleft_pos).center)
     return rotated, new_rect
 
-def get_available_resolutions(ratio=4/3):
+def get_available_resolutions(ratio=4/3, min_size=(800,600)):
     '''
         Returns all the available fullscreen resolutions with the given ratio
     '''
@@ -132,6 +192,6 @@ def get_available_resolutions(ratio=4/3):
 
     resolutions = []
     for res in pygame.display.list_modes():
-        if res[0]/res[1] == ratio:
+        if res[0]/res[1] == ratio and res[0] >= min_size[0] and res[1] >= min_size[1]:
             resolutions.append(res)
     return resolutions

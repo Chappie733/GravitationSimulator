@@ -1,4 +1,3 @@
-from typing import Text
 import pygame
 import time
 from utils import adapt_ratio, load_texture, clamp, load_spritesheet, rotate_texture, get_angle
@@ -31,7 +30,7 @@ class UI:
                 widget.on_click_release(mouse_pos, mouse_vel)
         else:
             for widget in self.widgets:
-                widget.handle_event(event)
+                widget.handle_event(event, mouse_pos)
 
     def update(self):
         for widget in self.widgets:
@@ -41,6 +40,7 @@ class UI:
         if not self.enabled:
             return
 
+        UIElement.popup_msg.render(surf)
         for widget in self.widgets:
             widget.render(surf)
 
@@ -61,17 +61,26 @@ class UI:
                 return widget
         return None
 
+    def is_on_ui(self, pos: tuple) -> bool:
+        '''
+            Returns whether the given (x,y) position is on one of the widgets in the ui
+        '''
+        for widget in self.widgets:
+            if widget.is_on_element(pos) and widget.enabled:
+                return True
+        return False
 
 class UIElement:
     font = None
+    popup_msg = None # pop up text
 
     # make a list of children GUIelements, so that their position and whether they
     # are enabled or not depends on the parameters of their parent 
     def __init__(self, pos, size, texture=None, parent=None, enabled=True) -> None:
         '''
-            pos -> position of the top-left corner of the gui element
-            size -> width and height of the gui element (w,h)
-            texture -> pygame image of the texture to be used
+            pos -> position of the top-left corner of the gui element\n
+            size -> width and height of the gui element (w,h)\n
+            texture -> pygame image of the texture to be used\n
         '''
         self.pos = pos
         self.enabled = enabled
@@ -108,7 +117,7 @@ class UIElement:
         self.size = adapt_ratio(self.size, (wnew/wold, hnew/hold))
         self.pos = adapt_ratio(self.pos, (wnew/wold, hnew/hold))
         if self.texture is not None: # rescale the texture
-            self.texture = pygame.transform.scale(self.texture, self.size)
+            self.texture = pygame.transform.smoothscale(self.texture, self.size)
         # automatically call the method on every sub component if it wasn't specifically requested not to
         if resize_widgets: 
             for widget in self.get_child_widgets():
@@ -136,28 +145,32 @@ class UIElement:
     def get_child_widgets(self) -> None:
         widgets = []
         for attrib in dir(self):
-            if attrib == 'parent':
+            # do not account for the attributes every element has
+            if attrib == 'parent' or attrib == 'popup_msg':
                 continue
             if isinstance(self.__getattribute__(attrib), UIElement):
                 widgets.append(self.__getattribute__(attrib))
         return widgets
 
     @staticmethod
-    def init_font(W=800, H=600.0) -> None:
+    def init(W=800, H=600.0) -> None:
         '''
-            W -> the width of the screen, the font is set to assume the screen ratio is 4:3
+            The function initializes the font and the pop-up messages of the UI\n
+            W, H --> respectively the width and the height of the screen
         '''
    #     font_location = pygame.font.match_font('arial')
         UIElement.font = pygame.font.SysFont(None, int(23*(W+H)/1400.0))
-
+        pop_up_size = adapt_ratio((128,32), (W/800.0, H/600.0))
+        UIElement.popup_msg = PopUpText(((W-pop_up_size[0])//2, int(100*H/600)), pop_up_size)
 
 class ProgressBar(UIElement):
     BACKGROUND_COLOR = (255,128,0)
     PROGRESS_COLOR = (255,255,0)
+    BORDER_COLOR = (255,255,255)
 
     def __init__(self, pos, size, min_val=0, val=50, max_val=100, texture=None, parent=None, 
                 interactable=True, discrete=False, fill_y_offset=0, fill_y_size=0, fill_color=None,
-                continuous=True) -> None:
+                background_color=None, border_color=None, border_size=0, continuous=True) -> None:
         '''
             pos -> (x,y) pixel position of the element\n
             size -> (width, height) pixel size of the element\n
@@ -177,9 +190,12 @@ class ProgressBar(UIElement):
         self.val = val
         self.interactable = interactable
         self.discrete = discrete
-        self.fill_y_size = fill_y_size if fill_y_size != 0 else self.size[1]
-        self.fill_y_offset = fill_y_offset
+        self.fill_y_size = fill_y_size if fill_y_size != 0 else self.size[1]-2*border_size
+        self.fill_y_offset = fill_y_offset+border_size
         self.fill_color = fill_color if fill_color is not None else self.PROGRESS_COLOR
+        self.background_color = background_color if background_color is not None else self.BACKGROUND_COLOR
+        self.border_color = border_color if border_color is not None else self.BORDER_COLOR
+        self.border_size = border_size
         self.continuous = continuous
 
     def on_click(self, mouse_pos) -> bool:
@@ -216,21 +232,25 @@ class ProgressBar(UIElement):
     def render(self, surf: pygame.Surface) -> None:
         if not self.enabled:
             return
-
+    
         prog_w = int((self.val-self.min_val)/(self.max_val-self.min_val)*self.size[0]) # width of the progress color (in pixels)
         src = (0,0) if self.parent is None else self.parent.pos
         if self.texture is None:
-            pygame.draw.rect(surf, self.BACKGROUND_COLOR, (src[0]+self.pos[0], src[1]+self.pos[1], self.size[0], self.size[1]))
-        pygame.draw.rect(surf, self.fill_color, (src[0]+self.pos[0], src[1]+self.pos[1]+self.fill_y_offset, prog_w, self.fill_y_size))
+            rect = (src[0]+self.pos[0], src[1]+self.pos[1], self.size[0], self.size[1])
+            pygame.draw.rect(surf, self.background_color, rect)
+            if self.border_size != 0:
+                pygame.draw.rect(surf, self.border_color, rect, self.border_size)
+        pygame.draw.rect(surf, self.fill_color, (src[0]+self.pos[0]+self.border_size,  # x
+                                                src[1]+self.pos[1]+self.fill_y_offset,  # y
+                                                prog_w-self.border_size, self.fill_y_size)) # width and height
         # draws the background image if it's present
         if self.texture is not None:
             surf.blit(self.texture, self.get_abs_pos(self.pos))
 
-
 class TextBox(UIElement):
     DEFAULT_TEXTURE = load_texture('textbox.png')
     # characters that can't be typed in
-    FORBIDDEN_CHARS = (8,pygame.K_LSHIFT,pygame.K_RSHIFT,pygame.K_ESCAPE, pygame.K_RETURN)
+    FORBIDDEN_CHARS = (8, pygame.K_ESCAPE, pygame.K_RETURN)
     # characters that can be typed in numeric mode even if they aren't numbers
     NUMERICAL_EXCEPTIONS = ('-','.','^','*','/','+') 
 
@@ -249,26 +269,39 @@ class TextBox(UIElement):
         super().__init__(pos, size, texture=texture if texture is not None else self.DEFAULT_TEXTURE, parent=parent, enabled=not enable_on_click)
         self.content = ""
         self.text = self.font.render("", False, (255,255,255))
-        self.max_len = max_len
+        self.max_len = max(1, max_len)
         self.char_size = (int(self.size[0]/self.max_len*letter_width), int(self.size[1]*3/5))
         self.letter_width = letter_width
         self.active = False # whether the user is writing on the textbox
         self.enable_on_click = enable_on_click
         self.numeric = numeric
+        self.selected_char = 1
 
-    def set_text(self, text) -> None:
+    def set_max_len(self, max_len: int) -> None:
+        '''
+            Set the maximum length of the text rendered
+        '''
+        self.max_len = max_len
+        self.char_size = (int(self.size[0]/self.max_len*self.letter_width), int(self.size[1]*3/5))
+
+    def set_text(self, text, disable=False) -> None:
         self.content = text
+        self.selected_char = clamp(self.selected_char, 0, len(text))
+        if len(text) > self.max_len:
+            self.set_max_len(len(text))
         text_size = (int(self.char_size[0]*len(self.content)), int(self.char_size[1]))
         self.text = pygame.transform.scale(self.font.render(self.content, False, (255,255,255)), text_size) # the text has to be re-rendered
+        if disable:
+            self.active = False
 
     def is_valid(self, char: int) -> bool:
         '''
-            Returns whether the character (as its event.key representation) can be typed into the textbox
+            Returns whether the character (as its event.unicode and event.key representation) can be typed into the textbox or not
         '''
-        if char in self.FORBIDDEN_CHARS:
+        if len(char) == 0:
             return False
         if self.numeric:
-            if ord('0') <= char <= ord('9') or chr(char) in self.NUMERICAL_EXCEPTIONS:
+            if ord('0') <= ord(char) <= ord('9') or char in self.NUMERICAL_EXCEPTIONS:
                 return True
             return False
         return True
@@ -277,11 +310,10 @@ class TextBox(UIElement):
         '''
             Returns true if the textbox was selected/deselected
         '''
-        if not self.enabled:
-            return
-
         was_active = self.active
         self.active = super().is_on_element(mouse_pos)
+        if self.active:
+            self.selected_char = max(1, len(self.content))
         if self.enable_on_click:
             self.enabled = self.active
         return was_active != self.active
@@ -290,21 +322,26 @@ class TextBox(UIElement):
         '''
             Returns whether a new character was added to the content of the textbox
         '''
-        if not self.active or not self.enabled:
+        if not self.active:
             return False
         if event.type == pygame.KEYDOWN:
-            if event.key == 8 and len(self.content) > 0: # delete key has been pressed
-                self.set_text(self.content[:-1])
+            # right arrow is 275, left arrow is 276
+            if event.key == 275 or event.key == 276:
+                offset = 1 if event.key == 275 else -1
+                self.selected_char = clamp(self.selected_char+offset, 0, len(self.content))
+            elif event.key == 8: # delete key has been pressed
+                if len(self.content) < 0:
+                    return
+                self.selected_char = clamp(self.selected_char-1, 0, len(self.content))
+                self.set_text(self.content[:self.selected_char]+self.content[self.selected_char+1:])
                 return True
             elif len(self.content) < self.max_len:
                 # if the textbox is numeric and something that isn't a number has been typed in
-                if not self.is_valid(event.key):
+                if not self.is_valid(event.unicode):
                     return False
-                keys = pygame.key.get_pressed()
-                addition = chr(event.key)
-                if keys[pygame.K_RSHIFT] or keys[pygame.K_LSHIFT]:
-                    addition = chr(event.key-32) # make the letter a capital
-                self.set_text(self.content+addition) # add the newly typed letter into the text contained by the textbox
+                # add the newly typed letter into the text contained by the textbox
+                self.set_text(self.content[:self.selected_char]+event.unicode+self.content[self.selected_char:]) 
+                self.selected_char = clamp(self.selected_char+1, 1, len(self.content))
                 return True
         return False
 
@@ -321,8 +358,8 @@ class TextBox(UIElement):
         surf.blit(self.texture, (pos[0], pos[1]))
         surf.blit(self.text, (pos[0]+int(self.size[0]/18), pos[1] + int(self.size[1]*1/4)))
         if time.time() % 1 > 0.5 and self.active:
-            cursor_x_offset = int(self.size[0]*(len(self.content)+1)/self.max_len*self.letter_width)
-            pygame.draw.rect(surf, (255,255,255), (pos[0]+cursor_x_offset, pos[1] + int(self.size[1]*1/4), self.char_size[0], self.char_size[1]))
+            cursor_x_offset = min(int(self.char_size[0]*self.selected_char), self.size[0]-self.char_size[1])+self.char_size[0]//2
+            pygame.draw.rect(surf, (255,255,255), (pos[0]+cursor_x_offset, pos[1] + int(self.size[1]*1/5), self.char_size[0]//2, self.char_size[1]))
 
 class Button(UIElement):
     BUTTON_MASK_TEXTURE = load_spritesheet("button_mask.png", tile_w=1, tile_h=1)
@@ -397,10 +434,10 @@ class Button(UIElement):
 
 class Tickbox(UIElement):
 
-    def __init__(self, pos, size, textures=None, parent=None) -> None:
+    def __init__(self, pos, size, textures=None, parent=None, ticked=False) -> None:
         super().__init__(pos, size, parent=parent, enabled=True)
-        self.ticked = False
-        self.texture_state = 0 # texture state (0 -> unticked, 1 -> clicked (but click not yet released), 2 -> ticked)
+        self.ticked = ticked
+        self.texture_state = 2*int(ticked) # texture state (0 -> unticked, 1 -> clicked (but click not yet released), 2 -> ticked)
         self.textures = []
         # make sure the game doesn't just crash if no custom texture is loaded
         if textures is not None:
@@ -496,6 +533,17 @@ class ModifiableText(UIElement):
     # so its  text matches with the one rendered when the textbox is disabled
     def __init__(self, pos, size, max_len=9, texture=None, parent=None, letter_width=0.5, numeric=False, dims=(800.0,600.0),
                 conversion_func=None) -> None:
+        '''
+            pos, size --> position and size of the widget in pixels\n
+            max_len --> maximum length of the text written\n
+            texture, parent --> the background texture and the parent of the UIElement\n
+            letter_width --> amount of spacing between each letter\n
+            numeric --> whether the text only allows numeric characters (also includes '.', '*' and so on)\n
+            dims --> the width and height of the window (in pixels), used to scale the distance between the letters\n
+            conversion_func --> function that takes two parameters x,y, if y is true the text is beggining to be modified
+            \t\t\t\tand the function should return how the displayed text is converted to the one in the textbox, if y is false the
+            opposite process is applied.
+        '''
         super().__init__(pos, size, texture=None, parent=parent, enabled=True)
         self.textbox = TextBox((pos[0]-int(5*dims[0]/800.0), pos[1]-int(5*dims[1]/600.0)), 
                         size, max_len, texture, parent, True, letter_width, numeric)
@@ -505,9 +553,16 @@ class ModifiableText(UIElement):
         # and (base text -> Textbox text) if the second parameter is True
         self.conversion_func = conversion_func if conversion_func is not None else lambda x,y: x
 
-    def set_text(self, text: str, update_textbox=False) -> None:
+    def set_max_len(self, max_len: int) -> None:
+        ''' Sets the maximum length of the text '''
+        self.textbox.set_max_len(max_len)
+
+    def set_text(self, text: str, update_textbox=False, disable=False) -> None:
         self.text = text
         self._update_text()
+        if disable:
+            self.textbox.active = False
+            self.textbox.enabled = False
         if update_textbox:
             self.textbox.set_text(text)
 
@@ -538,13 +593,13 @@ class ModifiableText(UIElement):
 
 class TextButton(UIElement):
 
-    def __init__(self, pos, size, text, texture=None, parent=None) -> None:
+    def __init__(self, pos, size, text, texture=None, parent=None, max_len=None) -> None:
         '''
             A button, but with a text rendered on top of it
         '''
         super().__init__(pos, size, texture=None, parent=parent, enabled=True)
-        self.textbox = TextBox(self.pos, self.size, max_len=len(text), texture=texture, 
-                                parent=self.parent, letter_width=0.9)
+        self.textbox = TextBox(self.pos, self.size, max_len=len(text) if max_len is None else max_len, 
+                                texture=texture, parent=self.parent, letter_width=0.9)
         self.textbox.set_text(text)
         self.button = Button(self.pos, self.size, textures=Button.BUTTON_MASK_TEXTURE, parent=self.parent)
 
@@ -565,7 +620,7 @@ class TextButton(UIElement):
 class DropDownList(UIElement):
     DEFAULT_ENTRY_TEXTURE = load_texture("dropdown_entry.png")
     
-    def __init__(self, pos, size, entries=[], parent=None, dims=(800.0,600.0), initial_element=None) -> None:
+    def __init__(self, pos, size, entries=[' '], parent=None, dims=(800.0,600.0), initial_element=None) -> None:
         '''
             dims -> the size of the window (or of the surface the widget is being rendered on)
         '''
@@ -582,53 +637,65 @@ class DropDownList(UIElement):
         self.opened = False # whether the list is open
         self.set_entries(entries, initial_element)
 
-    def set_selected(self, selected_entry_idx):
+    def set_selected(self, selected_entry_idx: int) -> None:
+        ''' Sets the selection of the drop-down list to the one at the given index '''
         self.selected_entry_idx = selected_entry_idx
-        self.main_textbox.set_text(self.entries[selected_entry_idx])
+        # make sure to put an empty text if the index isn't valid
+        new_text = "" if not (0 <= selected_entry_idx < len(self.entries)) else self.entries[selected_entry_idx]
+        self.main_textbox.set_text(new_text)
 
     def set_entries(self, entries=[], initial_element=None) -> None:
         self.entries_buttons = []
-        self.entries_textboxes = []
         self.entries = entries
         max_text_len = max([len(entry) for entry in entries])
+        self.main_textbox = TextBox(self.pos, self.size, max_text_len+2, letter_width=0.8, parent=self.parent)
         if initial_element is None or initial_element not in self.entries:
             self.set_selected(0)
         else:
             self.set_selected(self.entries.index(initial_element))
 
-        # TODO: initialize for each entry its textbox and button, I guess each entry can have as a width
         # 3/4 of the width of this widget (or maybe 4/5), and as a height the same as this widget's
         for entry_idx in range(len(entries)):
             choice_box_size = (int(self.size[0]*4/5), self.size[1])
             choice_box_pos = (self.pos[0]+self.size[0]//10, self.pos[1]+self.size[1]*(entry_idx+1))
-            entry_textbox = TextBox(choice_box_pos, choice_box_size,
-                                  max_len = max_text_len, letter_width=0.9, parent=self.parent)
-            entry_textbox.set_text(entries[entry_idx])
-            entry_button = Button(choice_box_pos, choice_box_size, textures=Button.BUTTON_MASK_TEXTURE, parent=self.parent)
+            entry_button = TextButton(choice_box_pos, choice_box_size, entries[entry_idx], 
+                                        parent=self.parent, max_len=max_text_len)
             entry_button.enabled = self.opened
-            entry_textbox.enabled = self.opened
-            self.entries_textboxes.append(entry_textbox)
             self.entries_buttons.append(entry_button)
+
+    def remove_entry(self, entry: str) -> None:
+        ''' Removes the entry from the dropdown list, if the entry isn't in the list the return value is -1 '''
+        try:
+            entry_idx = self.entries.index(entry)
+        except ValueError:
+            return -1
+        # shift up the position of every choice after the one being removed 
+        for succ_entry in range(entry_idx, len(self.entries)):
+            self.entries_buttons[succ_entry].pos = (self.pos[0]+self.size[0]//10, self.pos[1]+self.size[1]*succ_entry)
+        self.entries_buttons.pop(entry_idx)
+        self.entries.pop(entry_idx)
+        if entry_idx == self.selected_entry_idx:
+            self.set_selected(clamp(entry_idx-1, 0, len(self.entries)-1))
+
+    def add_entry(self, entry: str) -> None:
+        ''' Adds an entry to the drop down list '''
 
     def set_opened(self, opened) -> None:
         self.opened = opened
         for i in range(len(self.entries)):
-            self.entries_textboxes[i].enabled = opened
             self.entries_buttons[i].enabled = opened
 
     def is_on_element(self, mouse_pos) -> bool:
         if super().is_on_element(mouse_pos):
             return True
         if self.opened:
-            for button in self.entries_textboxes:
+            for button in self.entries_buttons:
                 if button.is_on_element(mouse_pos):
                     return True
         return False
 
     def on_click(self, mouse_pos):
-        '''
-            Returns whether the click was on the widget
-        '''
+        ''' Returns whether the click was on the widget '''
         if not self.is_on_element(mouse_pos):
             self.set_opened(False)
             return False
@@ -644,9 +711,7 @@ class DropDownList(UIElement):
             entry_button.on_mouse_motion(mouse_pos)
 
     def on_click_release(self, mouse_pos, *args):
-        '''
-            Returns whether an option was chosen
-        '''
+        ''' Returns whether an option was chosen '''
         if self.dropdown_button.on_click_release(mouse_pos):
             self.set_opened(not self.opened)
         for entry_idx in range(len(self.entries)):
@@ -660,7 +725,6 @@ class DropDownList(UIElement):
         super().on_window_resize(wold, hold, wnew, hnew, resize_widgets=True)
         for entry_idx in range(len(self.entries)):
             self.entries_buttons[entry_idx].on_window_resize(wold, hold, wnew, hnew)
-            self.entries_textboxes[entry_idx].on_window_resize(wold, hold, wnew, hnew)
 
     def render(self, surf: pygame.Surface) -> None:
         if not self.enabled:
@@ -670,8 +734,58 @@ class DropDownList(UIElement):
         self.dropdown_button.render(surf)
 
         for entry in range(len(self.entries)):
-            self.entries_textboxes[entry].render(surf)
             self.entries_buttons[entry].render(surf)
 
     def get_selected(self) -> str:
         return self.entries[self.selected_entry_idx]
+
+class PopUpText(UIElement):
+
+    def __init__(self, pos, size, text="", last_time=1, fade_time=0.2) -> None:
+        '''
+            pos -> (x,y) position on the screen\n
+            size -> (width, height) size of the pop-up in pixels\n
+            text -> the text rendered\n 
+            last_time -> the amount of time (in seconds) that the pop up lasts\n
+            fade_time -> amount of time to fade in and fade out
+        '''
+        super().__init__(pos, size, texture=None, enabled=False)
+        self.textbox = TextBox((0,0), size, max_len=len(text), letter_width=0.95)
+        self.textbox.set_text(text)
+        self.last_time = last_time
+        self.fade_time = fade_time
+        # surface on which the textbox is rendered, this is done to modify its opacity
+        self.render_surf = pygame.Surface(size, pygame.SRCALPHA).convert()
+
+    def start(self) -> None:
+        self.start_time = time.time()
+        self.enabled = True
+        self.textbox.render(self.render_surf)
+
+    def cast(self, text: str, last_time: float, fade_time=0.2, pos=None, size=None):
+        ''' Casts a pop up message on the screen '''
+        self.last_time = last_time
+        self.fade_time = fade_time
+        self.textbox.set_text(text)
+        self.textbox.set_max_len(len(text))
+        self.pos = self.pos if pos is None else pos
+        self.size = self.size if size is None else size
+        self.start()
+
+    def on_click(self, *args):
+        pass
+
+    def render(self, surf: pygame.Surface) -> None:
+        if not self.enabled:
+            return
+        elapsed = time.time()-self.start_time
+        if elapsed <= self.fade_time: # FADE IN
+            opacity = int(elapsed/self.fade_time*255)
+            self.render_surf.set_alpha(opacity)
+        elif elapsed >= self.last_time-self.fade_time: # FADE OUT
+            since_fade_out = elapsed-(self.last_time-self.fade_time)
+            opacity = 255-int(since_fade_out/self.fade_time*255)
+            self.render_surf.set_alpha(opacity)
+        surf.blit(self.render_surf, self.pos)
+        if elapsed >= self.last_time:
+            self.enabled = False

@@ -23,7 +23,7 @@ class Animation:
         if frames is not None:
             self.set_frames(frames)
     
-    def __parse_frame(self, frame: dict, prev=None, delay=0.0) -> dict:
+    def __parse_frame(self, frame: dict, prev=None, delay=0.0, custom_attributes=[]) -> dict:
         '''
             Takes an incomplete representation of a frame and returns its parsed (complete)
             version, the missing values are taken from the previous frame prev if it's not None,
@@ -107,7 +107,7 @@ class Animation:
         if prev_time < self.get_curr_play_time() < next_time: # if we're in the right frame do nothing
             return
         # loop through every frame until you find one that hasn't yet been reached
-        while self.frames[self.curr_frame+1]['time'] < self.get_curr_play_time():
+        while self.frames[self.curr_frame+1]['time'] <= self.get_curr_play_time():
             self.next_frame()
             if not self.running:
                 break
@@ -117,7 +117,8 @@ class Animation:
             Returns the position at the current frame, if one regularly calls anim.update() then
             setting updating=True will improve the performance of the method
         '''
-        self.update_frame()
+        if not updating:
+            self.update_frame()
         if not self.running:
             return self.frames[self.curr_frame]['pos']
 
